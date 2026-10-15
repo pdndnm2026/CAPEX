@@ -59,7 +59,21 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.error('Sign in error:', error);
+    if (
+      error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/cancelled-popup-request'
+    ) {
+      // User closed the popup window or cancelled. This is a normal user interaction.
+      console.info('Google sign-in popup was closed by the user.');
+      return null;
+    }
+    if (error?.code === 'auth/popup-blocked') {
+      console.warn('Google sign-in popup was blocked by browser.');
+      throw new Error(
+        'The sign-in popup was blocked by your browser. Please allow popups for this domain and try again.'
+      );
+    }
+    console.error('Google sign-in error:', error);
     throw error;
   } finally {
     isSigningIn = false;

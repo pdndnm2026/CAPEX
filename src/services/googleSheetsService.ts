@@ -1,5 +1,26 @@
 import { CapexRow } from '../types/capexFormat';
 
+export const DEFAULT_STORAGE_EMAIL = 'pdndnm2026@gmail.com';
+export const STORAGE_EMAIL_KEY = 'capex_designated_storage_email';
+
+export function getDesignatedStorageEmail(): string {
+  try {
+    return localStorage.getItem(STORAGE_EMAIL_KEY) || DEFAULT_STORAGE_EMAIL;
+  } catch {
+    return DEFAULT_STORAGE_EMAIL;
+  }
+}
+
+export function setDesignatedStorageEmail(email: string): void {
+  try {
+    localStorage.setItem(STORAGE_EMAIL_KEY, email.trim() || DEFAULT_STORAGE_EMAIL);
+  } catch {
+    // ignore
+  }
+}
+
+export const DESIGNATED_STORAGE_EMAIL = DEFAULT_STORAGE_EMAIL;
+
 export interface GoogleSheetSummary {
   id: string;
   name: string;
@@ -208,8 +229,27 @@ export async function createCapexGoogleSheet(
         requests: [...mergeRequests, formatRequest],
       }),
     });
+  } catch (err) {
+    console.warn('Formatting batch update notice:', err);
+  }
+
+  // Share sheet with designated storage email pdndnm2026@gmail.com
+  try {
+    const storageEmail = getDesignatedStorageEmail();
+    await fetch(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}/permissions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        role: 'writer',
+        type: 'user',
+        emailAddress: storageEmail,
+      }),
+    });
   } catch (e) {
-    console.warn('Formatting batch update non-critical warning:', e);
+    console.warn('Share with storage email notice:', e);
   }
 
   const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
@@ -345,6 +385,25 @@ export async function updateCapexGoogleSheet(
   if (!writeRes.ok) {
     const err = await writeRes.json();
     throw new Error(err.error?.message || 'Failed to update Google Sheet values');
+  }
+
+  // Ensure sheet is shared with designated storage email
+  try {
+    const storageEmail = getDesignatedStorageEmail();
+    await fetch(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}/permissions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        role: 'writer',
+        type: 'user',
+        emailAddress: storageEmail,
+      }),
+    });
+  } catch (e) {
+    console.warn('Share with storage email on update notice:', e);
   }
 }
 

@@ -7,6 +7,13 @@ import {
   listDriveSheets,
   GoogleSheetSummary,
 } from '../services/googleSheetsService';
+import {
+  setActiveSheet,
+  getActiveSheetId,
+  getActiveSheetUrl,
+  getCloudWebhookUrl,
+  setCloudWebhookUrl,
+} from '../services/driveSyncService';
 import { googleSignIn, logout, User } from '../services/googleAuth';
 import {
   X,
@@ -20,6 +27,9 @@ import {
   FolderOpen,
   LogOut,
   Sparkles,
+  Cloud,
+  ShieldCheck,
+  Database,
 } from 'lucide-react';
 
 interface GoogleSheetsModalProps {
@@ -56,6 +66,11 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
   const [showConfirmOverwrite, setShowConfirmOverwrite] = useState(false);
   const [pendingImportData, setPendingImportData] = useState<CapexRow[] | null>(null);
 
+  // Zero-Login Central Cloud Webhook / Sync state (no email exposed)
+  const [webhookUrl, setWebhookUrlState] = useState<string>(() => getCloudWebhookUrl());
+  const [isEditingWebhook, setIsEditingWebhook] = useState(false);
+  const [webhookInput, setWebhookInput] = useState(() => getCloudWebhookUrl());
+
   // Load recent sheets if user is authenticated
   useEffect(() => {
     if (isOpen && accessToken) {
@@ -79,9 +94,25 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
         listDriveSheets(result.accessToken)
           .then((files) => setRecentSheets(files))
           .catch(() => {});
+      } else {
+        setStatusMessage({
+          type: 'info',
+          text: 'Google sign-in was cancelled (popup closed). Click "Sign in with Google" whenever you are ready.',
+        });
       }
     } catch (err: any) {
-      setStatusMessage({ type: 'error', text: err.message || 'Failed to sign in with Google' });
+      if (
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request' ||
+        err?.message?.includes('popup-closed-by-user')
+      ) {
+        setStatusMessage({
+          type: 'info',
+          text: 'Google sign-in was cancelled. Click "Sign in with Google" to try again.',
+        });
+      } else {
+        setStatusMessage({ type: 'error', text: err.message || 'Failed to sign in with Google' });
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -94,16 +125,35 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
   };
 
   const handleCreateNewSheet = async () => {
-    if (!accessToken) {
-      await handleSignIn();
-      return;
+    let currentToken = accessToken;
+
+    if (!currentToken) {
+      setIsProcessing(true);
+      setStatusMessage(null);
+      try {
+        const result = await googleSignIn();
+        if (!result) {
+          setStatusMessage({
+            type: 'info',
+            text: 'Sign in cancelled. Please sign in with Google to create and sync your spreadsheet.',
+          });
+          setIsProcessing(false);
+          return;
+        }
+        onUserChange(result.user, result.accessToken);
+        currentToken = result.accessToken;
+      } catch (err: any) {
+        setStatusMessage({ type: 'error', text: err.message || 'Google sign-in is required to create a sheet' });
+        setIsProcessing(false);
+        return;
+      }
     }
 
     setIsProcessing(true);
     setStatusMessage(null);
     try {
       const { spreadsheetId, spreadsheetUrl } = await createCapexGoogleSheet(
-        accessToken,
+        currentToken,
         rows,
         sheetTitle.trim() || 'CAPEX_Reporting_March_to_Sept_2026'
       );
@@ -112,6 +162,7 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
       setActiveSheetUrl(spreadsheetUrl);
       localStorage.setItem('last_capex_google_sheet_id', spreadsheetId);
       localStorage.setItem('last_capex_google_sheet_url', spreadsheetUrl);
+      setActiveSheet(spreadsheetId, spreadsheetUrl);
 
       setStatusMessage({
         type: 'success',
@@ -267,6 +318,89 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
                 <span>Sign in with Google</span>
               </button>
             )}
+          </div>
+
+          {/* Zero-Login Central Drive Cloud Storage Section (No Email Displayed) */}
+          <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
+                  <Cloud className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                      Central Drive Storage &amp; Auto-Save
+                    </span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-300 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Zero-Login Active
+                    </span>
+                  </div>
+                  <p className="text-slate-600 mt-0.5 text-xs">
+                    Submissions from all users &amp; departments automatically save to the Central Drive repository without requiring individual user login.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-emerald-300 text-emerald-800 text-xs font-semibold shadow-2xs">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  Auto-Save On Submit
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingWebhook(!isEditingWebhook)}
+                  className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 underline cursor-pointer"
+                >
+                  {isEditingWebhook ? 'Close Webhook' : 'Direct Webhook'}
+                </button>
+              </div>
+            </div>
+
+            {isEditingWebhook && (
+              <div className="pt-2 border-t border-emerald-200/60 space-y-2">
+                <p className="text-[11px] text-slate-600">
+                  Optional: Provide a Google Apps Script Web App URL for 24/7 direct headless sync to the Central Google Sheet:
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="url"
+                    value={webhookInput}
+                    onChange={(e) => setWebhookInput(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/.../exec"
+                    className="text-xs border border-emerald-300 rounded-lg px-2.5 py-1.5 bg-white flex-1 focus:ring-2 focus:ring-emerald-600 focus:outline-hidden font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCloudWebhookUrl(webhookInput.trim());
+                      setWebhookUrlState(webhookInput.trim());
+                      setIsEditingWebhook(false);
+                      setStatusMessage({
+                        type: 'success',
+                        text: webhookInput.trim()
+                          ? 'Central Drive Webhook configured successfully!'
+                          : 'Webhook URL cleared.',
+                      });
+                    }}
+                    className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-semibold cursor-pointer shrink-0"
+                  >
+                    Save Webhook
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 flex flex-wrap items-center justify-between text-[11px] text-emerald-900 gap-2 border-t border-emerald-200/70">
+              <span className="flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Central Drive repository configured with full read/write persistence</span>
+              </span>
+              <span className="text-slate-500 text-[10px]">
+                {rows.length} records ready for instant sync
+              </span>
+            </div>
           </div>
 
           {/* Action 1: Create & Export to New Google Sheet */}
