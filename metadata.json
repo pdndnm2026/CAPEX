@@ -1,0 +1,6 @@
+{
+  "name": "CAPEX Track & M&S Dispatch",
+  "description": "Comprehensive CAPEX expenditure tracker, departmental target collection portal, WhatsApp notifications for M&S, and Excel report generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
