@@ -63,13 +63,13 @@ export const TargetSubmissionModal: React.FC<TargetSubmissionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !proposedBudget || !submittedBy) return;
 
     const budgetNum = parseFloat(proposedBudget) || 0;
 
-    const newTarget = addTarget({
+    const newTarget = await addTarget({
       department,
       title,
       description: description || title,

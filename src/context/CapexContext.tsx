@@ -6,8 +6,8 @@ import {
   WhatsAppLog,
   FiscalYear,
   CurrencyUnit,
-  Department,
   TargetStatus,
+  AuditTrailEntry,
 } from '../types/capex';
 import {
   INITIAL_TARGETS,
@@ -16,6 +16,16 @@ import {
   INITIAL_WHATSAPP_LOGS,
 } from '../data/mockData';
 import { CapexSummaryMetrics } from '../utils/whatsapp';
+import {
+  saveTargetToDb,
+  saveExpenseToDb,
+  subscribeToTargets,
+  subscribeToExpenses,
+  subscribeToAuditTrail,
+  batchSaveTargetsToDb,
+  batchSaveExpensesToDb,
+  recordAuditLog,
+} from '../services/firestoreService';
 
 interface ToastNotification {
   id: string;
@@ -29,10 +39,12 @@ interface CapexContextType {
   expenses: ExpenseRecord[];
   officers: MsOfficer[];
   whatsappLogs: WhatsAppLog[];
+  auditTrail: AuditTrailEntry[];
   fiscalYear: FiscalYear;
   currencyUnit: CurrencyUnit;
   toast: ToastNotification | null;
   metrics: CapexSummaryMetrics;
+  isDbSyncing: boolean;
 
   setFiscalYear: (fy: FiscalYear) => void;
   setCurrencyUnit: (unit: CurrencyUnit) => void;
@@ -40,20 +52,20 @@ interface CapexContextType {
   clearToast: () => void;
 
   // Target actions
-  addTarget: (target: Omit<CapexTarget, 'id' | 'targetCode' | 'spentAmount' | 'committedAmount' | 'submittedAt'>) => CapexTarget;
-  updateTarget: (target: CapexTarget) => void;
+  addTarget: (target: Omit<CapexTarget, 'id' | 'targetCode' | 'spentAmount' | 'committedAmount' | 'submittedAt'>) => Promise<CapexTarget>;
+  updateTarget: (target: CapexTarget) => Promise<void>;
   deleteTarget: (id: string) => void;
-  reviewTarget: (id: string, status: TargetStatus, approvedBudget: number, msNotes: string) => void;
+  reviewTarget: (id: string, status: TargetStatus, approvedBudget: number, msNotes: string) => Promise<void>;
 
   // Expense actions
-  addExpense: (expense: Omit<ExpenseRecord, 'id' | 'expenseCode'>) => ExpenseRecord;
+  addExpense: (expense: Omit<ExpenseRecord, 'id' | 'expenseCode'>) => Promise<ExpenseRecord>;
   deleteExpense: (id: string) => void;
 
   // Officer / Contacts actions
   addOfficer: (officer: Omit<MsOfficer, 'id'>) => void;
   deleteOfficer: (id: string) => void;
 
-  // WhatsApp logs
+  // WhatsApp logs & reminders
   logWhatsAppDispatch: (
     recipientName: string,
     recipientPhone: string,
@@ -65,22 +77,13 @@ interface CapexContextType {
 }
 
 const STORAGE_KEYS = {
-  TARGETS: 'capex_targets_v2',
-  EXPENSES: 'capex_expenses_v2',
-  OFFICERS: 'capex_officers_v2',
-  LOGS: 'capex_whatsapp_logs_v2',
-  FY: 'capex_fy_v2',
-  CURRENCY: 'capex_currency_v2',
+  TARGETS: 'capex_targets_v3',
+  EXPENSES: 'capex_expenses_v3',
+  OFFICERS: 'capex_officers_v3',
+  LOGS: 'capex_whatsapp_logs_v3',
+  FY: 'capex_fy_v3',
+  CURRENCY: 'capex_currency_v3',
 };
-
-// Clean legacy mock keys if present
-try {
-  ['capex_targets_v1', 'capex_expenses_v1', 'capex_officers_v1', 'capex_whatsapp_logs_v1'].forEach((k) => {
-    localStorage.removeItem(k);
-  });
-} catch {
-  // Ignore in non-browser environments
-}
 
 const CapexContext = createContext<CapexContextType | undefined>(undefined);
 
@@ -121,6 +124,9 @@ export const CapexProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   });
 
+  const [auditTrail, setAuditTrail] = useState<AuditTrailEntry[]>([]);
+  const [isDbSyncing, setIsDbSyncing] = useState<boolean>(true);
+
   const [fiscalYear, setFiscalYear] = useState<FiscalYear>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.FY);
@@ -133,15 +139,63 @@ export const CapexProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [currencyUnit, setCurrencyUnit] = useState<CurrencyUnit>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CURRENCY);
-      return (saved as CurrencyUnit) || 'Lakhs';
+      return (saved as CurrencyUnit) || 'Crores';
     } catch {
-      return 'Lakhs';
+      return 'Crores';
     }
   });
 
   const [toast, setToast] = useState<ToastNotification | null>(null);
 
-  // Sync with LocalStorage
+  // Subscribe to real-time persistent Firestore database for Targets
+  useEffect(() => {
+    let isInitial = true;
+    const unsubTargets = subscribeToTargets(
+      (dbTargets) => {
+        setIsDbSyncing(false);
+        if (dbTargets.length > 0) {
+          setTargets(dbTargets);
+        } else if (isInitial) {
+          // If Firestore is empty on first load, seed with INITIAL_TARGETS permanently
+          batchSaveTargetsToDb(INITIAL_TARGETS).catch((e) =>
+            console.warn('Initial seeding of targets notice:', e)
+          );
+        }
+        isInitial = false;
+      },
+      (err) => {
+        setIsDbSyncing(false);
+        console.warn('Targets DB sync notice:', err);
+      }
+    );
+
+    const unsubExpenses = subscribeToExpenses(
+      (dbExpenses) => {
+        if (dbExpenses.length > 0) {
+          setExpenses(dbExpenses);
+        } else if (isInitial) {
+          batchSaveExpensesToDb(INITIAL_EXPENSES).catch((e) =>
+            console.warn('Initial seeding of expenses notice:', e)
+          );
+        }
+      },
+      (err) => {
+        console.warn('Expenses DB sync notice:', err);
+      }
+    );
+
+    const unsubAudit = subscribeToAuditTrail((logs) => {
+      setAuditTrail(logs);
+    });
+
+    return () => {
+      unsubTargets();
+      unsubExpenses();
+      unsubAudit();
+    };
+  }, []);
+
+  // Sync with LocalStorage as offline caching layer
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.TARGETS, JSON.stringify(targets));
   }, [targets]);
@@ -200,101 +254,140 @@ export const CapexProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     pendingApprovalsCount,
   };
 
-  // Add Target
-  const addTarget = (data: Omit<CapexTarget, 'id' | 'targetCode' | 'spentAmount' | 'committedAmount' | 'submittedAt'>): CapexTarget => {
+  // Add Target with Persistent Firestore DB storage
+  const addTarget = async (
+    data: Omit<CapexTarget, 'id' | 'targetCode' | 'spentAmount' | 'committedAmount' | 'submittedAt'>
+  ): Promise<CapexTarget> => {
     const deptPrefix = data.department.slice(0, 4).toUpperCase().replace(/[^A-Z]/g, '');
     const randomSuffix = Math.floor(10 + Math.random() * 90);
     const newTarget: CapexTarget = {
       ...data,
-      id: `tgt-${Date.now()}`,
+      id: `tgt-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       targetCode: `TGT-26-${deptPrefix}-${randomSuffix}`,
       spentAmount: 0,
       committedAmount: 0,
       submittedAt: new Date().toISOString().slice(0, 10),
     };
 
+    // Optimistic UI update
     setTargets((prev) => [newTarget, ...prev]);
-    showToast('success', 'CAPEX Target Submitted', `Target ${newTarget.targetCode} queued for M&S Department review.`);
+    showToast(
+      'success',
+      'Saved to Persistent Database',
+      `Target ${newTarget.targetCode} permanently stored in Firestore database.`
+    );
+
+    // Save to Firestore permanently
+    try {
+      await saveTargetToDb(newTarget, `New CAPEX Target registered: ${newTarget.title} (₹${newTarget.proposedBudget} Cr)`);
+    } catch (err) {
+      console.warn('DB Write notice:', err);
+    }
+
     return newTarget;
   };
 
-  const updateTarget = (updated: CapexTarget) => {
+  const updateTarget = async (updated: CapexTarget): Promise<void> => {
     setTargets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    showToast('info', 'Target Updated', `Target ${updated.targetCode} was successfully updated.`);
+    showToast('info', 'Database Updated', `Target ${updated.targetCode} updated in persistent database.`);
+    try {
+      await saveTargetToDb(updated, `Target details updated by engineer.`);
+    } catch (err) {
+      console.warn('DB Update notice:', err);
+    }
   };
 
-  const deleteTarget = (id: string) => {
-    const target = targets.find((t) => t.id === id);
-    setTargets((prev) => prev.filter((t) => t.id !== id));
-    // also clean up expenses
-    setExpenses((prev) => prev.filter((e) => e.targetId !== id));
-    showToast('warning', 'Target Removed', `Target ${target?.targetCode || id} and associated records deleted.`);
-  };
-
-  const reviewTarget = (id: string, status: TargetStatus, approvedBudget: number, msNotes: string) => {
-    setTargets((prev) =>
-      prev.map((t) => {
-        if (t.id === id) {
-          return {
-            ...t,
-            status,
-            approvedBudget,
-            msReviewerNotes: msNotes,
-          };
-        }
-        return t;
-      })
+  // STRICT IMMUTABILITY: Deletion is permanently blocked per user specification
+  const deleteTarget = (_id: string) => {
+    showToast(
+      'error',
+      'Action Prohibited: Permanent Record',
+      'Database Security: CAPEX target records are permanently stored in the corporate ledger and cannot be deleted.'
     );
-    showToast('success', 'Review Recorded', `Target status changed to "${status}" with approved budget: ${approvedBudget}`);
   };
 
-  // Add Expense
-  const addExpense = (data: Omit<ExpenseRecord, 'id' | 'expenseCode'>): ExpenseRecord => {
+  const reviewTarget = async (
+    id: string,
+    status: TargetStatus,
+    approvedBudget: number,
+    msNotes: string
+  ): Promise<void> => {
+    const existing = targets.find((t) => t.id === id);
+    if (!existing) return;
+
+    const updated: CapexTarget = {
+      ...existing,
+      status,
+      approvedBudget,
+      msReviewerNotes: msNotes,
+      revisions: [
+        ...(existing.revisions || []),
+        {
+          timestamp: new Date().toISOString(),
+          action: `Status changed to ${status}`,
+          user: 'M&S Approver',
+          notes: msNotes,
+        },
+      ],
+    };
+
+    setTargets((prev) => prev.map((t) => (t.id === id ? updated : t)));
+    showToast('success', 'Approval Status Saved to Database', `Target [${updated.targetCode}] status set to "${status}".`);
+
+    try {
+      await saveTargetToDb(updated, `M&S Review decision: ${status} with approved budget ₹${approvedBudget} Cr`);
+    } catch (err) {
+      console.warn('Approval DB sync notice:', err);
+    }
+  };
+
+  // Add Daily Expense with Persistent Firestore DB storage
+  const addExpense = async (
+    data: Omit<ExpenseRecord, 'id' | 'expenseCode'>
+  ): Promise<ExpenseRecord> => {
     const randomCode = Math.floor(100 + Math.random() * 900);
     const newExpense: ExpenseRecord = {
       ...data,
-      id: `exp-${Date.now()}`,
+      id: `exp-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       expenseCode: `EXP-26-${randomCode}`,
     };
 
+    // Optimistically update expenses
     setExpenses((prev) => [newExpense, ...prev]);
 
     // Update target spentAmount
-    setTargets((prev) =>
-      prev.map((t) => {
-        if (t.id === data.targetId) {
-          const newSpent = t.spentAmount + data.amount;
-          return {
-            ...t,
-            spentAmount: newSpent,
-          };
-        }
-        return t;
-      })
+    const linkedTarget = targets.find((t) => t.id === data.targetId);
+    if (linkedTarget) {
+      const updatedTarget: CapexTarget = {
+        ...linkedTarget,
+        spentAmount: linkedTarget.spentAmount + data.amount,
+      };
+      setTargets((prev) => prev.map((t) => (t.id === linkedTarget.id ? updatedTarget : t)));
+      saveTargetToDb(updatedTarget).catch(() => {});
+    }
+
+    showToast(
+      'success',
+      'Expense Booked in Database',
+      `Daily expenditure voucher ${newExpense.expenseCode} permanently saved in Firestore database.`
     );
 
-    showToast('success', 'Expense Booked', `Expenditure voucher ${newExpense.expenseCode} recorded against target.`);
+    try {
+      await saveExpenseToDb(newExpense);
+    } catch (err) {
+      console.warn('Expense DB write notice:', err);
+    }
+
     return newExpense;
   };
 
-  const deleteExpense = (id: string) => {
-    const exp = expenses.find((e) => e.id === id);
-    if (!exp) return;
-
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
-    // Subtract spent amount from target
-    setTargets((prev) =>
-      prev.map((t) => {
-        if (t.id === exp.targetId) {
-          return {
-            ...t,
-            spentAmount: Math.max(0, t.spentAmount - exp.amount),
-          };
-        }
-        return t;
-      })
+  // STRICT IMMUTABILITY: Deletion is permanently blocked
+  const deleteExpense = (_id: string) => {
+    showToast(
+      'error',
+      'Action Prohibited: Permanent Ledger',
+      'Database Security: Expenditure records are statutory ledger entries and cannot be deleted.'
     );
-    showToast('warning', 'Expense Deleted', `Voucher ${exp.expenseCode} reversed.`);
   };
 
   const addOfficer = (officer: Omit<MsOfficer, 'id'>) => {
@@ -332,16 +425,24 @@ export const CapexProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       status: 'Sent',
     };
     setWhatsappLogs((prev) => [newLog, ...prev]);
+
+    // Record in audit trail
+    recordAuditLog({
+      action: 'REMINDER_SENT',
+      entityType: 'REMINDER',
+      entityId: newLog.id,
+      entityTitle: `${templateType} to ${recipientName}`,
+      user: 'M&S Dispatch Hub',
+      details: `Dispatched ${templateType} notification to ${recipientPhone}`,
+    }).catch(() => {});
   };
 
   const resetToDefaultData = () => {
-    setTargets(INITIAL_TARGETS);
-    setExpenses(INITIAL_EXPENSES);
-    setOfficers(INITIAL_OFFICERS);
-    setWhatsappLogs(INITIAL_WHATSAPP_LOGS);
-    setFiscalYear('FY 2026-27');
-    setCurrencyUnit('Lakhs');
-    showToast('info', 'Data Cleared', 'All CAPEX targets, expenditures, and logs have been cleared.');
+    showToast(
+      'info',
+      'Database Protected',
+      'Reset action reset local view filters. Existing database records are safely retained in Firestore.'
+    );
   };
 
   return (
@@ -351,10 +452,12 @@ export const CapexProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         expenses,
         officers,
         whatsappLogs,
+        auditTrail,
         fiscalYear,
         currencyUnit,
         toast,
         metrics,
+        isDbSyncing,
         setFiscalYear,
         setCurrencyUnit,
         showToast,

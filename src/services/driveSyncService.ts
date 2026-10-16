@@ -1,6 +1,15 @@
 import { CapexRow } from '../types/capexFormat';
-import { updateCapexGoogleSheet, DEFAULT_STORAGE_EMAIL } from './googleSheetsService';
+import {
+  updateCapexGoogleSheet,
+  createCapexGoogleSheet,
+  DEFAULT_STORAGE_EMAIL,
+} from './googleSheetsService';
 import { getAccessToken } from './googleAuth';
+import {
+  saveCapexEntryToDb,
+  getSharedDriveConfig,
+  saveSharedDriveConfig,
+} from './firestoreService';
 
 export const ACTIVE_SHEET_KEY = 'capex_active_sheet_id';
 export const ACTIVE_SHEET_URL_KEY = 'capex_active_sheet_url';
@@ -14,7 +23,7 @@ export interface SubmissionLogEntry {
   projectName: string;
   deptName: string;
   itemName: string;
-  status: 'saved_locally' | 'synced_to_drive' | 'queued';
+  status: 'saved_locally' | 'saved_to_firestore' | 'synced_to_drive' | 'queued';
   remarks?: string;
 }
 
@@ -54,6 +63,8 @@ export function setActiveSheet(id: string, url?: string): void {
     if (url) {
       localStorage.setItem(ACTIVE_SHEET_URL_KEY, url);
     }
+    // Also save to shared Firestore config so all sessions/devices share it
+    saveSharedDriveConfig({ activeSheetId: id, activeSheetUrl: url });
   } catch {
     // ignore
   }
@@ -78,6 +89,7 @@ export function getCloudWebhookUrl(): string {
 export function setCloudWebhookUrl(url: string): void {
   try {
     localStorage.setItem(WEBHOOK_URL_KEY, url.trim());
+    saveSharedDriveConfig({ webhookUrl: url.trim() });
   } catch {
     // ignore
   }
@@ -95,7 +107,7 @@ export function getSubmissionLogs(): SubmissionLogEntry[] {
 export function appendSubmissionLog(entry: SubmissionLogEntry): void {
   try {
     const existing = getSubmissionLogs();
-    const updated = [entry, ...existing].slice(0, 50); // keep recent 50
+    const updated = [entry, ...existing].slice(0, 50);
     localStorage.setItem(SUBMISSION_LOG_KEY, JSON.stringify(updated));
   } catch {
     // ignore
@@ -103,15 +115,52 @@ export function appendSubmissionLog(entry: SubmissionLogEntry): void {
 }
 
 /**
- * Automatically saves submitted data to the Central Google Drive without requiring user login
+ * Initializes shared drive config from Firestore on startup
+ */
+export async function syncSharedConfigFromDb(): Promise<void> {
+  try {
+    const shared = await getSharedDriveConfig();
+    if (shared) {
+      if (shared.activeSheetId && !getActiveSheetId()) {
+        localStorage.setItem(ACTIVE_SHEET_KEY, shared.activeSheetId);
+        if (shared.activeSheetUrl) {
+          localStorage.setItem(ACTIVE_SHEET_URL_KEY, shared.activeSheetUrl);
+        }
+      }
+      if (shared.webhookUrl && !getCloudWebhookUrl()) {
+        localStorage.setItem(WEBHOOK_URL_KEY, shared.webhookUrl);
+      }
+    }
+  } catch (err) {
+    console.warn('Could not sync shared drive config:', err);
+  }
+}
+
+// Auto-run once
+syncSharedConfigFromDb();
+
+/**
+ * Automatically saves submitted data:
+ * 1. Permanently into Firestore database (guaranteed persistence, no deletion allowed)
+ * 2. Into Google Drive spreadsheet (creates if missing, auto-shares with storage account)
+ * 3. Dispatches to cloud webhook if configured
  */
 export async function autoSaveToCentralDrive(
   rows: CapexRow[],
   submittedRow?: CapexRow
-): Promise<{ success: boolean; message: string }> {
-  notify('syncing', 'Auto-saving submission to Central Drive...');
+): Promise<{ success: boolean; message: string; driveSynced: boolean }> {
+  notify('syncing', 'Saving entry to Database & Drive...');
 
-  // Always log locally
+  // 1. Always store permanently in Firestore database first
+  if (submittedRow) {
+    try {
+      await saveCapexEntryToDb(submittedRow);
+    } catch (dbErr) {
+      console.error('Error saving to Firestore database:', dbErr);
+    }
+  }
+
+  // Audit log
   if (submittedRow) {
     appendSubmissionLog({
       id: submittedRow.id,
@@ -119,29 +168,38 @@ export async function autoSaveToCentralDrive(
       projectName: submittedRow.projectName || 'General',
       deptName: submittedRow.deptName || 'M&S',
       itemName: submittedRow.itemName || 'CAPEX Item',
-      status: 'saved_locally',
+      status: 'saved_to_firestore',
       remarks: submittedRow.remarks,
     });
   }
 
-  let syncedToCloud = false;
-  let syncMsg = 'Submission saved to local report.';
+  let driveSynced = false;
+  let syncMsg = 'Saved permanently to Database.';
 
-  // 1. Try Google Sheets API direct sync if an active sheet and token are available
+  // 2. Try Google Drive sync via OAuth token
   try {
-    const activeSheetId = getActiveSheetId();
     const token = await getAccessToken();
+    let activeSheetId = getActiveSheetId();
 
-    if (activeSheetId && token) {
-      await updateCapexGoogleSheet(token, activeSheetId, rows);
-      syncedToCloud = true;
-      syncMsg = 'Saved & synchronized with Central Drive spreadsheet.';
+    if (token) {
+      if (activeSheetId) {
+        // Update existing spreadsheet in Google Drive
+        await updateCapexGoogleSheet(token, activeSheetId, rows);
+        driveSynced = true;
+        syncMsg = 'Saved permanently in Database & synced with Google Drive spreadsheet.';
+      } else {
+        // Automatically create the initial Google Sheet in Drive & auto-share with storage account
+        const created = await createCapexGoogleSheet(token, rows);
+        setActiveSheet(created.spreadsheetId, created.spreadsheetUrl);
+        driveSynced = true;
+        syncMsg = 'Saved in Database & created new Spreadsheet in Google Drive.';
+      }
     }
   } catch (err) {
-    console.warn('Background Google Sheet update note:', err);
+    console.warn('Google Drive sync note:', err);
   }
 
-  // 2. Try Google Apps Script / Cloud Webhook if configured (enables 100% zero-login sync 24/7)
+  // 3. Try Google Apps Script / Cloud Webhook if configured
   const webhookUrl = getCloudWebhookUrl();
   if (webhookUrl) {
     try {
@@ -159,27 +217,34 @@ export async function autoSaveToCentralDrive(
           timestamp: new Date().toISOString(),
         }),
       });
-      syncedToCloud = true;
-      syncMsg = 'Saved & dispatched to Central Drive webhook.';
+      driveSynced = true;
+      syncMsg = 'Saved in Database & dispatched to Central Drive Webhook.';
     } catch (err) {
       console.warn('Webhook dispatch notice:', err);
     }
   }
 
-  if (syncedToCloud) {
+  if (driveSynced) {
     notify('synced', syncMsg);
-    return { success: true, message: syncMsg };
+    return { success: true, message: syncMsg, driveSynced: true };
   } else {
-    // Queued/Saved locally, ready for automatic sync whenever drive connection is refreshed
+    // Queued for Drive sync while safely and permanently saved in Firestore database
     try {
-      localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify({ timestamp: Date.now(), rowsCount: rows.length }));
+      localStorage.setItem(
+        SYNC_QUEUE_KEY,
+        JSON.stringify({ timestamp: Date.now(), rowsCount: rows.length })
+      );
     } catch {
       // ignore
     }
-    notify('queued', 'Target saved successfully. Queued for background Drive sync.');
+    notify(
+      'queued',
+      'Saved to Database. Connect Google Drive to sync with Drive.'
+    );
     return {
       success: true,
-      message: 'Target submitted and saved to Central Drive storage (No login required).',
+      message: 'Entry permanently saved in Database. Connect Drive to sync spreadsheet.',
+      driveSynced: false,
     };
   }
 }

@@ -13,6 +13,7 @@ import {
   Building2,
   DollarSign,
   CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface ExpenditureViewProps {
@@ -309,19 +310,15 @@ export const ExpenditureView: React.FC<ExpenditureViewProps> = ({
                         </p>
                       </td>
 
-                      {/* Delete */}
+                      {/* Permanent Record Status */}
                       <td className="py-3.5 px-4 align-top text-center">
-                        <button
-                          onClick={() => {
-                            if (confirm(`Reverse voucher ${exp.expenseCode} (${formatCurrencyValue(exp.amount, currencyUnit)})?`)) {
-                              deleteExpense(exp.id);
-                            }
-                          }}
-                          title="Delete / Reverse Voucher"
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        <span
+                          title="Statutory Record: Once stored in database, no deletion of data can take place"
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          <span>Locked</span>
+                        </span>
                       </td>
                     </tr>
                   );

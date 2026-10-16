@@ -44,6 +44,8 @@ export interface CapexTarget {
   id: string;
   targetCode: string; // e.g. TGT-26-PROD-01
   department: Department;
+  projectName?: string; // e.g. DONIMALAI, KIOCL, NMDC
+  wbsElement?: string; // e.g. WBS-MECH-2026-004
   title: string;
   description: string;
   category: CapexCategory;
@@ -63,19 +65,28 @@ export interface CapexTarget {
   msReviewerNotes?: string;
   justification: string;
   vendorProposed?: string;
+  revisions?: {
+    timestamp: string;
+    action: string;
+    user: string;
+    notes: string;
+  }[];
 }
 
 export interface ExpenseRecord {
   id: string;
   expenseCode: string; // e.g. EXP-2026-089
+  voucherNumber?: string; // e.g. VCH-2026-4491
   targetId: string; // Links to CapexTarget
   department: Department;
+  projectName?: string;
+  wbsElement?: string;
   title: string;
   category: CapexCategory;
   vendor: string;
   poNumber: string;
   invoiceNumber: string;
-  invoiceDate: string;
+  invoiceDate: string; // YYYY-MM-DD
   amount: number;
   paymentStatus: PaymentStatus;
   enteredBy: string;
@@ -105,9 +116,31 @@ export interface WhatsAppLog {
     | 'TARGET_APPROVAL'
     | 'VARIANCE_ALERT'
     | 'EXPENSE_BOOKED'
+    | 'SUBMISSION_REMINDER'
     | 'CUSTOM';
   contentPreview: string;
   status: 'Sent' | 'Failed' | 'Draft';
+}
+
+export interface AuditTrailEntry {
+  id: string;
+  timestamp: string;
+  action:
+    | 'TARGET_SUBMITTED'
+    | 'TARGET_UPDATED'
+    | 'TARGET_APPROVED'
+    | 'TARGET_REJECTED'
+    | 'EXPENSE_BOOKED'
+    | 'EXPENSE_UPDATED'
+    | 'DRIVE_SYNC'
+    | 'REPORT_EXPORTED'
+    | 'REMINDER_SENT';
+  entityType: 'TARGET' | 'EXPENSE' | 'EXACT_ROW' | 'REPORT' | 'DRIVE' | 'REMINDER';
+  entityId: string;
+  entityTitle: string;
+  user: string;
+  details: string;
+  metadata?: Record<string, any>;
 }
 
 export interface CapexFilterState {

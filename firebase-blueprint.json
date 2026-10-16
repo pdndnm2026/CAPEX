@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "CapexEntry": {
+      "title": "Capex Entry",
+      "description": "Permanent CAPEX target and item submission record (13-column M&S format)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "slNo": { "type": "number" },
+        "projectName": { "type": "string" },
+        "deptName": { "type": "string" },
+        "itemName": { "type": "string" },
+        "wbsElement": { "type": "string" },
+        "itemValue": { "type": "string" },
+        "expenditureIncurred": { "type": "string" },
+        "balanceFundRequired": { "type": "string" },
+        "deliveryCapexValue": { "type": "string" },
+        "deliveryMonthYear": { "type": "string" },
+        "commissionCapexValue": { "type": "string" },
+        "commissionMonth": { "type": "string" },
+        "remarks": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["projectName", "deptName", "itemName"]
+    },
+    "CapexTarget": {
+      "title": "Capex Target",
+      "description": "Departmental CAPEX Target, Budget Allocation, and Multi-stage Approval Workflow Record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "targetCode": { "type": "string" },
+        "department": { "type": "string" },
+        "projectName": { "type": "string" },
+        "wbsElement": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "priority": { "type": "string" },
+        "proposedBudget": { "type": "number" },
+        "approvedBudget": { "type": "number" },
+        "spentAmount": { "type": "number" },
+        "committedAmount": { "type": "number" },
+        "fiscalYear": { "type": "string" },
+        "quarter": { "type": "string" },
+        "targetCompletionDate": { "type": "string" },
+        "status": { "type": "string" },
+        "submittedBy": { "type": "string" },
+        "submittedByPhone": { "type": "string" },
+        "submittedAt": { "type": "string" },
+        "msReviewerNotes": { "type": "string" },
+        "justification": { "type": "string" }
+      },
+      "required": ["targetCode", "department", "title", "proposedBudget", "fiscalYear"]
+    },
+    "ExpenseRecord": {
+      "title": "Daily Expense Record",
+      "description": "Daily expenditure, voucher, invoice, and payment tracking record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "expenseCode": { "type": "string" },
+        "targetId": { "type": "string" },
+        "department": { "type": "string" },
+        "projectName": { "type": "string" },
+        "wbsElement": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "vendor": { "type": "string" },
+        "poNumber": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "invoiceDate": { "type": "string" },
+        "amount": { "type": "number" },
+        "paymentStatus": { "type": "string" },
+        "enteredBy": { "type": "string" },
+        "approvedBy": { "type": "string" },
+        "remarks": { "type": "string" }
+      },
+      "required": ["expenseCode", "department", "title", "amount", "invoiceDate"]
+    },
+    "AuditTrailEntry": {
+      "title": "Audit Trail Entry",
+      "description": "Permanent tamper-proof audit log of all system submissions, approvals, reviews, and sync actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "entityTitle": { "type": "string" },
+        "user": { "type": "string" },
+        "details": { "type": "string" }
+      },
+      "required": ["timestamp", "action", "entityType", "entityId", "details"]
+    }
+  },
+  "firestore": {
+    "/capex_entries/{entryId}": {
+      "schema": "CapexEntry",
+      "description": "Permanent M&S 13-column CAPEX register. Deletion forbidden."
+    },
+    "/capex_targets/{targetId}": {
+      "schema": "CapexTarget",
+      "description": "Permanent CAPEX target records, approvals, and budget allocation."
+    },
+    "/capex_expenses/{expenseId}": {
+      "schema": "ExpenseRecord",
+      "description": "Permanent daily expenditure logs, vouchers, and payment records."
+    },
+    "/capex_audit_trail/{auditId}": {
+      "schema": "AuditTrailEntry",
+      "description": "Immutable audit trail logs. Write-once, no edits or deletions permitted."
+    }
+  }
+}

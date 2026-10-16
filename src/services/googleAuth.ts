@@ -1,17 +1,16 @@
-import { initializeApp } from 'firebase/app';
 import {
-  getAuth,
   signInWithPopup,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { auth } from './firebase';
 
+export { auth };
 export type { User };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+export const GOOGLE_OAUTH_CLIENT_ID =
+  '786291555301-081fdk96amrvk1m3nt8q9d3khu9ntft3.apps.googleusercontent.com';
 
 export const SCOPES = [
   'https://www.googleapis.com/auth/drive',

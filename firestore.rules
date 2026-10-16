@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Connection health check doc
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // CAPEX Target & Reporting entries (Exact 13-column format)
+    // Deletion is strictly prohibited: records once entered are permanently preserved.
+    match /capex_entries/{entryId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+
+    // CAPEX Targets & Approval Workflows
+    match /capex_targets/{targetId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+
+    // Daily Expenditure & Vouchers
+    match /capex_expenses/{expenseId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if false;
+    }
+
+    // Immutable Corporate Audit Trail (Write-once, never updated or deleted)
+    match /capex_audit_trail/{auditId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Officers, Contacts & Reminders
+    match /capex_officers/{officerId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    // Global Drive & Google Cloud Configuration
+    match /capex_config/{configId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    // Global default fallback
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

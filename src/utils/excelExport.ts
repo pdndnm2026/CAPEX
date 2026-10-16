@@ -282,3 +282,158 @@ export function exportCapexToExcel({
   // Write and trigger browser download
   XLSX.writeFile(wb, fileName);
 }
+
+/**
+ * Builds the workbook as a binary Blob for direct Google Drive upload
+ */
+export function generateCapexExcelBlob(options: ExcelExportOptions): { blob: Blob; fileName: string } {
+  const { fiscalYear, departmentFilter } = options;
+  const filteredTargets = departmentFilter && departmentFilter !== 'All'
+    ? options.targets.filter((t) => t.department === departmentFilter)
+    : options.targets;
+  const filteredExpenses = departmentFilter && departmentFilter !== 'All'
+    ? options.expenses.filter((e) => e.department === departmentFilter)
+    : options.expenses;
+
+  const totalApproved = filteredTargets.reduce((s, t) => s + (t.approvedBudget || 0), 0);
+  const totalProposed = filteredTargets.reduce((s, t) => s + (t.proposedBudget || 0), 0);
+  const totalSpent = filteredExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalCommitted = filteredTargets.reduce((s, t) => s + (t.committedAmount || 0), 0);
+  const netBalance = Math.max(0, totalApproved - totalSpent - totalCommitted);
+  const spentPct = totalApproved > 0 ? ((totalSpent / totalApproved) * 100).toFixed(1) : '0';
+
+  const summaryData: any[] = [
+    ['CAPITAL EXPENDITURE (CAPEX) & TARGET MANAGEMENT REPORT'],
+    [`Generated For: M&S Department | Fiscal Year: ${fiscalYear} | Currency Unit: ${options.currencyUnit}`],
+    [`Report Export Date: ${new Date().toLocaleString()}`],
+    [],
+    ['EXECUTIVE FINANCIAL METRICS', ''],
+    ['Total Proposed Budget', totalProposed],
+    ['Total Approved Budget', totalApproved],
+    ['Total Actual Invoiced Spent', totalSpent],
+    ['Total Committed (POs)', totalCommitted],
+    ['Net Available Balance', netBalance],
+    ['Utilization Rate', `${spentPct}%`],
+    [],
+    ['Target Code', 'Department', 'Project', 'Title', 'Approved Budget', 'Spent', 'Committed', 'Balance', 'Status'],
+    ...filteredTargets.map((t) => [
+      t.targetCode,
+      t.department,
+      t.projectName || 'M&S',
+      t.title,
+      t.approvedBudget,
+      t.spentAmount,
+      t.committedAmount,
+      t.approvedBudget - t.spentAmount - t.committedAmount,
+      t.status,
+    ]),
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(summaryData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Summary & Targets');
+
+  const expData: any[] = [
+    ['Voucher Code', 'Target Code', 'Department', 'Vendor', 'Invoice No', 'Invoice Date', 'Amount', 'Payment Status'],
+    ...filteredExpenses.map((e) => [
+      e.expenseCode,
+      e.targetId,
+      e.department,
+      e.vendor,
+      e.invoiceNumber,
+      e.invoiceDate,
+      e.amount,
+      e.paymentStatus,
+    ]),
+  ];
+  const wsExp = XLSX.utils.aoa_to_sheet(expData);
+  XLSX.utils.book_append_sheet(wb, wsExp, 'Expenditure Log');
+
+  const u8 = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([u8], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+  const dateTag = new Date().toISOString().slice(0, 10);
+  const deptTag = departmentFilter && departmentFilter !== 'All' ? `_${departmentFilter.replace(/[^a-zA-Z0-9]/g, '')}` : '_AllDepts';
+  const fileName = `CAPEX_M&S_Report_${fiscalYear.replace(/\s+/g, '_')}${deptTag}_${dateTag}.xlsx`;
+
+  return { blob, fileName };
+}
+
+/**
+ * Exports CSV file and triggers download
+ */
+export function exportCapexToCSV(options: ExcelExportOptions) {
+  const csvContent = generateCapexCSVString(options);
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const dateTag = new Date().toISOString().slice(0, 10);
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', `CAPEX_Report_${options.fiscalYear.replace(/\s+/g, '_')}_${dateTag}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+/**
+ * Returns raw CSV string for saving to Google Drive or external integrations
+ */
+export function generateCapexCSVString(options: ExcelExportOptions): string {
+  const { fiscalYear, currencyUnit, departmentFilter, targets, expenses } = options;
+  const filteredTargets = departmentFilter && departmentFilter !== 'All'
+    ? targets.filter((t) => t.department === departmentFilter)
+    : targets;
+
+  const rows: string[] = [
+    `CAPEX Target & Expenditure Report - ${fiscalYear} (${currencyUnit})`,
+    `Generated on: ${new Date().toISOString()}`,
+    '',
+    'Target Code,Department,Project,Title,Category,Priority,Proposed Budget,Approved Budget,Spent Amount,Committed Amount,Balance,Status,Target Date',
+  ];
+
+  filteredTargets.forEach((t) => {
+    const bal = (t.approvedBudget || 0) - (t.spentAmount || 0) - (t.committedAmount || 0);
+    const line = [
+      `"${t.targetCode}"`,
+      `"${t.department}"`,
+      `"${t.projectName || 'M&S'}"`,
+      `"${t.title.replace(/"/g, '""')}"`,
+      `"${t.category}"`,
+      `"${t.priority}"`,
+      t.proposedBudget,
+      t.approvedBudget,
+      t.spentAmount,
+      t.committedAmount,
+      bal,
+      `"${t.status}"`,
+      `"${t.targetCompletionDate}"`,
+    ].join(',');
+    rows.push(line);
+  });
+
+  rows.push('');
+  rows.push('--- DAILY EXPENDITURE RECORDS ---');
+  rows.push('Expense Code,Target ID,Department,Vendor,Invoice No,Invoice Date,Amount,Payment Status,Entered By');
+
+  const filteredExpenses = departmentFilter && departmentFilter !== 'All'
+    ? expenses.filter((e) => e.department === departmentFilter)
+    : expenses;
+
+  filteredExpenses.forEach((e) => {
+    const line = [
+      `"${e.expenseCode}"`,
+      `"${e.targetId}"`,
+      `"${e.department}"`,
+      `"${e.vendor.replace(/"/g, '""')}"`,
+      `"${e.invoiceNumber}"`,
+      `"${e.invoiceDate}"`,
+      e.amount,
+      `"${e.paymentStatus}"`,
+      `"${e.enteredBy}"`,
+    ].join(',');
+    rows.push(line);
+  });
+
+  return rows.join('\r\n');
+}
+

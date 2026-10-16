@@ -453,18 +453,14 @@ export const TargetsView: React.FC<TargetsViewProps> = ({
                       <Send className="w-4 h-4" />
                     </button>
 
-                    {/* Delete */}
-                    <button
-                      onClick={() => {
-                        if (confirm(`Delete target ${target.targetCode}: ${target.title}?`)) {
-                          deleteTarget(target.id);
-                        }
-                      }}
-                      title="Delete target"
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                    {/* Permanent Record Badge */}
+                    <span
+                      title="Permanent Record: Once stored in Firestore, no deletion of data can take place"
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200"
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                      <span>Permanent</span>
+                    </span>
                   </div>
                 </div>
               </div>

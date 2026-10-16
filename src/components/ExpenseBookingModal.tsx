@@ -44,13 +44,13 @@ export const ExpenseBookingModal: React.FC<ExpenseBookingModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTarget || !title || !amount) return;
 
     const amountNum = parseFloat(amount) || 0;
 
-    const newExpense = addExpense({
+    const newExpense = await addExpense({
       targetId: selectedTarget.id,
       department: selectedTarget.department,
       title,
