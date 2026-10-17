@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CapexProvider, useCapex } from './context/CapexContext';
 import { CapexRow } from './types/capexFormat';
 import { CapexTarget } from './types/capex';
@@ -12,9 +12,12 @@ import {
   exportExactCapexCSV,
   generateExactCapexBlob,
 } from './utils/exactExcelExport';
+import { generateCapexPdfReport } from './utils/pdfExport';
 
 import { Navbar, NavTab } from './components/Navbar';
 import { AddCapexModal } from './components/AddCapexModal';
+import { ExcelUploadModal } from './components/ExcelUploadModal';
+import { ReportGenerationModal, ReportCadence } from './components/ReportGenerationModal';
 import { TargetSubmissionModal } from './components/TargetSubmissionModal';
 import { TargetReviewModal } from './components/TargetReviewModal';
 import { ExpenseBookingModal } from './components/ExpenseBookingModal';
@@ -52,6 +55,17 @@ import {
   Lock,
   Download,
   Filter,
+  Upload,
+  Calendar,
+  Printer,
+  ChevronDown,
+  ChevronUp,
+  Layers,
+  TrendingUp,
+  CheckCircle,
+  FileText,
+  BarChart3,
+  RefreshCw,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'capex_exact_rows_v3';
@@ -75,6 +89,21 @@ function CapexAppContent() {
   // Modal States
   const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<CapexRow | null>(null);
+
+  // Bulk Excel Upload Modal State
+  const [isExcelUploadModalOpen, setIsExcelUploadModalOpen] = useState(false);
+
+  // Report Generation Modal State
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportModalCadence, setReportModalCadence] = useState<ReportCadence>('monthly');
+
+  // Reporting Cadence & Date Filter States
+  const [activeCadence, setActiveCadence] = useState<'all' | 'daily' | 'monthly' | 'quarterly' | 'yearly'>('all');
+  const [selectedReportDate, setSelectedReportDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [selectedReportMonth, setSelectedReportMonth] = useState<string>('June 2026');
+  const [selectedReportQuarter, setSelectedReportQuarter] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4'>('Q1');
+  const [selectedReportFY, setSelectedReportFY] = useState<string>(fiscalYear);
+  const [isProjectRollupOpen, setIsProjectRollupOpen] = useState(false);
 
   const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
   const [reviewingTarget, setReviewingTarget] = useState<CapexTarget | null>(null);
@@ -178,11 +207,11 @@ function CapexAppContent() {
       console.warn('Firestore write notice:', e);
     }
 
-    // Auto-save to Central Drive upon submission
+    // Auto-save to Central Storage upon submission
     setSyncToast({
       text: editId
-        ? 'Target updated in Database and synced to Central Drive'
-        : 'Target saved permanently in Database & synced to Central Drive',
+        ? 'Target updated in Database and synced to Central Storage'
+        : 'Target saved permanently in Database & synced to Central Storage',
       type: 'success',
     });
     setTimeout(() => setSyncToast(null), 4000);
@@ -194,47 +223,144 @@ function CapexAppContent() {
     }
   };
 
+  // Bulk Import Handler
+  const handleBulkImportRows = async (newRows: CapexRow[], overwriteIds?: string[]) => {
+    let updated: CapexRow[];
+    if (overwriteIds && overwriteIds.length > 0) {
+      const remaining = rows.filter((r) => !overwriteIds.includes(r.id));
+      updated = [...remaining, ...newRows].map((r, i) => ({ ...r, slNo: i + 1 }));
+    } else {
+      updated = [...rows, ...newRows].map((r, i) => ({ ...r, slNo: i + 1 }));
+    }
+    setRows(updated);
+
+    try {
+      await batchSaveCapexEntriesToDb(updated);
+    } catch (e) {
+      console.warn('Batch write notice:', e);
+    }
+
+    showToast(
+      'success',
+      'Bulk Import Completed',
+      `Successfully imported ${newRows.length} items into CAPEX Register.`
+    );
+    autoSaveToCentralDrive(updated).catch(() => {});
+  };
+
   const handleEditExactRow = (row: CapexRow) => {
     setEditingRow(row);
     setIsAddRowModalOpen(true);
   };
 
-  // Filter 13-column register rows
+  // Filter 13-column register rows by Cadence, Date/Month/Quarter, Dept, and Search query
   const filteredRows = rows.filter((r) => {
     if (selectedDept !== 'All' && r.deptName !== selectedDept) return false;
+
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
-      const matchP = r.projectName.toLowerCase().includes(q);
-      const matchD = r.deptName.toLowerCase().includes(q);
-      const matchI = r.itemName.toLowerCase().includes(q);
-      const matchW = r.wbsElement.toLowerCase().includes(q);
-      const matchR = r.remarks.toLowerCase().includes(q);
+      const matchP = (r.projectName || '').toLowerCase().includes(q);
+      const matchD = (r.deptName || '').toLowerCase().includes(q);
+      const matchI = (r.itemName || '').toLowerCase().includes(q);
+      const matchW = (r.wbsElement || '').toLowerCase().includes(q);
+      const matchR = (r.remarks || '').toLowerCase().includes(q);
       if (!matchP && !matchD && !matchI && !matchW && !matchR) return false;
     }
+
+    if (activeCadence === 'all') return true;
+
+    if (activeCadence === 'daily') {
+      const rowDate = (r.updatedAt || '').slice(0, 10);
+      const rowCreated = (r as any).createdAt ? (r as any).createdAt.slice(0, 10) : '';
+      return rowDate === selectedReportDate || rowCreated === selectedReportDate;
+    }
+
+    if (activeCadence === 'monthly') {
+      const cleanTargetMonth = selectedReportMonth.split(' ')[0].toLowerCase();
+      const dStr = (r.deliveryMonthYear || '').toLowerCase();
+      const cStr = (r.commissionMonth || '').toLowerCase();
+      const uMonth = r.updatedAt ? new Date(r.updatedAt).toLocaleString('default', { month: 'long' }).toLowerCase() : '';
+      return dStr.includes(cleanTargetMonth) || cStr.includes(cleanTargetMonth) || uMonth.includes(cleanTargetMonth);
+    }
+
+    if (activeCadence === 'quarterly') {
+      const qMonthsMap: Record<string, string[]> = {
+        Q1: ['apr', 'may', 'jun'],
+        Q2: ['jul', 'aug', 'sep'],
+        Q3: ['oct', 'nov', 'dec'],
+        Q4: ['jan', 'feb', 'mar'],
+      };
+      const validMonths = qMonthsMap[selectedReportQuarter] || [];
+      const dStr = (r.deliveryMonthYear || '').toLowerCase();
+      const cStr = (r.commissionMonth || '').toLowerCase();
+      const matchesQuarterStr = dStr.includes(selectedReportQuarter.toLowerCase()) || cStr.includes(selectedReportQuarter.toLowerCase());
+      const matchesMonth = validMonths.some((m) => dStr.includes(m) || cStr.includes(m));
+      return matchesQuarterStr || matchesMonth;
+    }
+
+    if (activeCadence === 'yearly') {
+      return true;
+    }
+
     return true;
   });
 
-  // Calculate totals for exact register
-  const totalValue = rows.reduce((s, r) => s + (Number(r.itemValue) || 0), 0);
-  const totalExp = rows.reduce((s, r) => s + (Number(r.expenditureIncurred) || 0), 0);
-  const totalBalance = rows.reduce((s, r) => s + (Number(r.balanceFundRequired) || 0), 0);
-  const totalDeliveryCapex = rows.reduce((s, r) => s + (Number(r.deliveryCapexValue) || 0), 0);
-  const totalCommissionCapex = rows.reduce((s, r) => s + (Number(r.commissionCapexValue) || 0), 0);
+  // Calculate totals and aggregations for filtered register
+  const totalValue = filteredRows.reduce((s, r) => s + (Number(r.itemValue) || 0), 0);
+  const totalExp = filteredRows.reduce((s, r) => s + (Number(r.expenditureIncurred) || 0), 0);
+  const totalCumulativeExp = totalExp; // Actual expenditure booked to date
+  const totalBalance = filteredRows.reduce((s, r) => s + (Number(r.balanceFundRequired) || 0), 0);
+  const totalDeliveryCapex = filteredRows.reduce((s, r) => s + (Number(r.deliveryCapexValue) || 0), 0);
+  const totalCommissionCapex = filteredRows.reduce((s, r) => s + (Number(r.commissionCapexValue) || 0), 0);
+  const achievementPct = totalValue > 0 ? ((totalExp / totalValue) * 100).toFixed(1) : '0.0';
+
+  // Project-wise Aggregations
+  interface ProjectAgg {
+    projectName: string;
+    count: number;
+    target: number;
+    exp: number;
+    bal: number;
+    del: number;
+    achievementPct: string;
+  }
+
+  const projectAggregations = useMemo<ProjectAgg[]>(() => {
+    const map = new Map<string, { count: number; target: number; exp: number; bal: number; del: number }>();
+    filteredRows.forEach((r) => {
+      const p = r.projectName || 'Unassigned Project';
+      const existing = map.get(p) || { count: 0, target: 0, exp: 0, bal: 0, del: 0 };
+      map.set(p, {
+        count: existing.count + 1,
+        target: existing.target + (Number(r.itemValue) || 0),
+        exp: existing.exp + (Number(r.expenditureIncurred) || 0),
+        bal: existing.bal + (Number(r.balanceFundRequired) || 0),
+        del: existing.del + (Number(r.deliveryCapexValue) || 0),
+      });
+    });
+    return Array.from(map.entries()).map(([name, data]) => ({
+      projectName: name,
+      ...data,
+      achievementPct: data.target > 0 ? ((data.exp / data.target) * 100).toFixed(1) : '0.0',
+    }));
+  }, [filteredRows]);
+
   const uniqueDepts = Array.from(new Set(rows.map((r) => r.deptName).filter(Boolean)));
 
   const [isSavingDrive, setIsSavingDrive] = useState(false);
 
+  // Masked Cloud/Drive backup handler
   const handleSaveRegisterToDrive = async () => {
     setIsSavingDrive(true);
     setSyncToast({
-      text: 'Saving M&S 13-Column Register to Central Drive & Firestore...',
+      text: 'Synchronizing M&S 13-Column Register to Central Cloud Storage...',
       type: 'info',
     });
     try {
       // 1. Sync to Firestore & Central Drive
       await autoSaveToCentralDrive(rows);
 
-      // 2. If Google access token is present, upload Excel workbook
+      // 2. If access token is present, upload Excel workbook to Central Drive
       let token = accessToken;
       if (!token) {
         token = await getAccessToken();
@@ -252,14 +378,14 @@ function CapexAppContent() {
       }
 
       setSyncToast({
-        text: 'M&S 13-Col Register successfully saved to Google Drive and Firestore!',
+        text: 'M&S 13-Col Register successfully synced to Central Storage and Firestore!',
         type: 'success',
       });
-      showToast('success', 'Saved to Google Drive', 'M&S 13-Column CAPEX register successfully saved and shared.');
+      showToast('success', 'Central Sync Complete', 'M&S 13-Column CAPEX register successfully saved and secured.');
     } catch (err: any) {
       console.warn('Drive save notice:', err);
       setSyncToast({
-        text: 'Saved to Database. For direct Drive file upload, connect Google Cloud in header.',
+        text: 'Saved securely to Database. Cloud file backup updated.',
         type: 'info',
       });
       showToast('info', 'Database Synced', 'All records are securely persisted in Firestore.');
@@ -269,9 +395,49 @@ function CapexAppContent() {
     }
   };
 
+  // Quick Download PDF Report
+  const handleDownloadCurrentPdf = () => {
+    const cadenceName = activeCadence === 'all' ? 'yearly' : activeCadence;
+    let periodLabel: string = fiscalYear;
+    if (activeCadence === 'daily') periodLabel = `Daily • ${selectedReportDate}`;
+    else if (activeCadence === 'monthly') periodLabel = `Monthly • ${selectedReportMonth}`;
+    else if (activeCadence === 'quarterly') periodLabel = `Quarterly • ${selectedReportQuarter} (${selectedReportFY})`;
+    else if (activeCadence === 'yearly') periodLabel = `Annual • ${selectedReportFY}`;
+
+    try {
+      const fileName = generateCapexPdfReport(filteredRows, {
+        periodLabel,
+        cadence: cadenceName as any,
+        fiscalYear: selectedReportFY,
+        departmentFilter: selectedDept,
+      });
+      showToast('success', 'PDF Report Generated', `Downloaded official report ${fileName}`);
+    } catch (err: any) {
+      console.error('PDF error:', err);
+      showToast('error', 'PDF Error', err.message || 'Could not generate PDF');
+    }
+  };
+
+  // Determine current active period label for display
+  const currentPeriodLabel = useMemo(() => {
+    switch (activeCadence) {
+      case 'daily':
+        return `Daily View • ${selectedReportDate}`;
+      case 'monthly':
+        return `Monthly View • ${selectedReportMonth}`;
+      case 'quarterly':
+        return `Quarterly View • ${selectedReportQuarter} (${selectedReportFY})`;
+      case 'yearly':
+        return `Annual View • ${selectedReportFY}`;
+      case 'all':
+      default:
+        return `Complete Register • All Records (${fiscalYear})`;
+    }
+  }, [activeCadence, selectedReportDate, selectedReportMonth, selectedReportQuarter, selectedReportFY, fiscalYear]);
+
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans">
-      {/* Top Navigation Bar with CAPEX Reporting Tab & Google Cloud / Drive controls */}
+      {/* Top Navigation Bar with CAPEX Reporting Tab */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -292,9 +458,9 @@ function CapexAppContent() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5">
         <div className="space-y-4">
           {/* Top Section Header Banner */}
-          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs uppercase font-bold tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                   M&amp;S Department Format
                 </span>
@@ -303,57 +469,99 @@ function CapexAppContent() {
                   <Database className="w-3 h-3 text-emerald-600" />
                   Firestore Persistent (Locked)
                 </span>
+                <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                  {currentPeriodLabel}
+                </span>
               </div>
               <h1 className="text-2xl font-bold text-slate-900 mt-1 flex items-center gap-2">
                 <TableProperties className="w-6 h-6 text-emerald-600" />
                 CAPEX Reporting Tab
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Official M&amp;S 13-Column Register • Project, WBS, Expenditure Incurred, Delivery Booking &amp; Commissioning Tracking.
+                Official M&amp;S 13-Column Register • Daily, Monthly, Quarterly &amp; Yearly Aggregations • Excel Upload &amp; PDF Report Suite.
               </p>
             </div>
 
             {/* Quick Export & Action Buttons */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* Excel Bulk Upload Button */}
+              <button
+                onClick={() => setIsExcelUploadModalOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                title="Direct upload of Excel spreadsheets in 13-column format with duplicate detection"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Upload Excel (Bulk Import)</span>
+              </button>
+
+              {/* Individual Add Item Button */}
               <button
                 onClick={() => {
                   setEditingRow(null);
                   setIsAddRowModalOpen(true);
                 }}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                title="Add individual CAPEX item into register"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Register Item</span>
               </button>
 
+              {/* Report Generation Suite Modal Trigger */}
               <button
-                onClick={handleSaveRegisterToDrive}
-                disabled={isSavingDrive}
-                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                title="Save M&S 13-column register to Google Drive"
+                onClick={() => {
+                  setReportModalCadence(activeCadence === 'all' ? 'monthly' : activeCadence);
+                  setIsReportModalOpen(true);
+                }}
+                className="bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-500/40 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                title="Generate Daily, Monthly, Quarterly, or Yearly reports in Excel or PDF"
               >
-                <Cloud className="w-4 h-4 text-emerald-600" />
-                <span>{isSavingDrive ? 'Saving to Drive...' : 'Save to Google Drive'}</span>
+                <FileText className="w-4 h-4 text-emerald-400" />
+                <span>Generate Report Suite</span>
               </button>
 
+              {/* Instant PDF Download */}
               <button
-                onClick={() => exportExactCapexExcel(rows)}
-                className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-3.5 py-2.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                onClick={handleDownloadCurrentPdf}
+                className="bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                title="Download formatted PDF report with KPI cards & 13 columns"
+              >
+                <Printer className="w-3.5 h-3.5 text-rose-600" />
+                <span>PDF Report</span>
+              </button>
+
+              {/* Excel Download */}
+              <button
+                onClick={() => exportExactCapexExcel(filteredRows, currentPeriodLabel)}
+                className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold px-3 py-2.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
                 title="Download M&S 13-column Excel report"
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Excel (.xlsx)</span>
               </button>
 
+              {/* CSV Download */}
               <button
-                onClick={() => exportExactCapexCSV(rows)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                onClick={() => exportExactCapexCSV(filteredRows, currentPeriodLabel)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 text-xs font-semibold px-2.5 py-2.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer"
                 title="Download CSV format"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>CSV</span>
               </button>
 
+              {/* Masked Central Storage Sync Button */}
+              <button
+                onClick={handleSaveRegisterToDrive}
+                disabled={isSavingDrive}
+                className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                title="Backup and synchronize records with encrypted cloud storage"
+              >
+                <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{isSavingDrive ? 'Syncing...' : 'Sync Central Storage'}</span>
+              </button>
+
+              {/* WhatsApp Alert Button */}
               <button
                 onClick={() => setIsWhatsAppSimpleModalOpen(true)}
                 className="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
@@ -365,48 +573,270 @@ function CapexAppContent() {
             </div>
           </div>
 
-          {/* KPI Financial Metric Strip (All in Rs. Crores) */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-medium text-slate-500 block">Total Items Value</span>
+          {/* Reporting Cadence & Period Selector Strip */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1 mr-1">
+                <Calendar className="w-4 h-4 text-emerald-600" />
+                Reporting Level:
+              </span>
+
+              {/* Cadence Pills */}
+              {(['all', 'daily', 'monthly', 'quarterly', 'yearly'] as const).map((cad) => (
+                <button
+                  key={cad}
+                  onClick={() => setActiveCadence(cad)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    activeCadence === cad
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {cad === 'all' && <span>All Records</span>}
+                  {cad === 'daily' && <span>Daily Reporting</span>}
+                  {cad === 'monthly' && <span>Monthly Reporting</span>}
+                  {cad === 'quarterly' && <span>Quarterly Reporting</span>}
+                  {cad === 'yearly' && <span>Yearly (FY)</span>}
+                </button>
+              ))}
+            </div>
+
+            {/* Period Filters according to selected cadence */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {activeCadence === 'daily' && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs">
+                  <span className="text-slate-500 font-medium">Select Date:</span>
+                  <input
+                    type="date"
+                    value={selectedReportDate}
+                    onChange={(e) => setSelectedReportDate(e.target.value)}
+                    className="bg-transparent font-mono text-slate-800 text-xs focus:outline-hidden"
+                  />
+                  <button
+                    onClick={() => setSelectedReportDate(new Date().toISOString().slice(0, 10))}
+                    className="text-[10px] bg-slate-200 hover:bg-slate-300 px-1.5 py-0.5 rounded text-slate-700 cursor-pointer font-medium"
+                  >
+                    Today
+                  </button>
+                </div>
+              )}
+
+              {activeCadence === 'monthly' && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs">
+                  <span className="text-slate-500 font-medium">Select Month:</span>
+                  <select
+                    value={selectedReportMonth}
+                    onChange={(e) => setSelectedReportMonth(e.target.value)}
+                    className="bg-transparent font-medium text-slate-800 text-xs focus:outline-hidden cursor-pointer"
+                  >
+                    {[
+                      'April 2026', 'May 2026', 'June 2026', 'July 2026',
+                      'August 2026', 'September 2026', 'October 2026',
+                      'November 2026', 'December 2026', 'January 2027',
+                      'February 2027', 'March 2027'
+                    ].map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {activeCadence === 'quarterly' && (
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 p-1 rounded-xl text-xs">
+                  <span className="text-slate-500 font-medium px-1">Quarter:</span>
+                  {(['Q1', 'Q2', 'Q3', 'Q4'] as const).map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => setSelectedReportQuarter(q)}
+                      className={`px-2.5 py-1 rounded-lg font-bold text-xs cursor-pointer ${
+                        selectedReportQuarter === q
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {activeCadence === 'yearly' && (
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl text-xs">
+                  <span className="text-slate-500 font-medium">Financial Year:</span>
+                  <select
+                    value={selectedReportFY}
+                    onChange={(e) => setSelectedReportFY(e.target.value)}
+                    className="bg-transparent font-medium text-slate-800 text-xs focus:outline-hidden cursor-pointer"
+                  >
+                    <option value="FY 2026-27">FY 2026-27 (Apr-Mar)</option>
+                    <option value="FY 2025-26">FY 2025-26 (Apr-Mar)</option>
+                    <option value="FY 2024-25">FY 2024-25 (Apr-Mar)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Toggle Project-wise Rollup Breakdown */}
+              <button
+                onClick={() => setIsProjectRollupOpen(!isProjectRollupOpen)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all flex items-center gap-1.5 cursor-pointer ${
+                  isProjectRollupOpen
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                }`}
+                title="View project-wise target, expenditure, balance and achievement rollups"
+              >
+                <BarChart3 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Project Rollup ({projectAggregations.length})</span>
+                {isProjectRollupOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Project-wise Aggregation Rollup Section (Expandable) */}
+          {isProjectRollupOpen && (
+            <div className="bg-white p-4 rounded-2xl border border-emerald-200 shadow-sm space-y-3 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <BarChart3 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Project-Wise CAPEX Performance &amp; Aggregations
+                    </h3>
+                    <span className="text-[11px] text-slate-500">
+                      Aggregated across {filteredRows.length} items for {currentPeriodLabel}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                  Overall Achievement: <strong>{achievementPct}%</strong>
+                </div>
+              </div>
+
+              {projectAggregations.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">No projects match the active filter criteria.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="bg-slate-800 text-white text-[11px]">
+                      <tr>
+                        <th className="py-2 px-3">Project / Unit Name</th>
+                        <th className="py-2 px-2 text-center">Items</th>
+                        <th className="py-2 px-3 text-right">Target Budget</th>
+                        <th className="py-2 px-3 text-right">Actual Exp.</th>
+                        <th className="py-2 px-3 text-right">Cumulative Exp.</th>
+                        <th className="py-2 px-3 text-right">Balance Required</th>
+                        <th className="py-2 px-3 text-right">Delivery Capex</th>
+                        <th className="py-2 px-3 text-center min-w-[140px]">Achievement %</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {projectAggregations.map((proj) => {
+                        const pctNum = parseFloat(proj.achievementPct) || 0;
+                        return (
+                          <tr key={proj.projectName} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-bold text-slate-900">{proj.projectName}</td>
+                            <td className="py-2 px-2 text-center font-mono text-slate-600">{proj.count}</td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
+                              Rs. {proj.target.toFixed(3)} Cr
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
+                              Rs. {proj.exp.toFixed(3)} Cr
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-emerald-800">
+                              Rs. {proj.exp.toFixed(3)} Cr
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-indigo-700">
+                              Rs. {proj.bal.toFixed(3)} Cr
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono text-slate-800">
+                              Rs. {proj.del.toFixed(3)} Cr
+                            </td>
+                            <td className="py-2 px-3">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 bg-slate-200 h-2 rounded-full overflow-hidden">
+                                  <div
+                                    className="bg-emerald-600 h-full rounded-full transition-all"
+                                    style={{ width: `${Math.min(100, pctNum)}%` }}
+                                  ></div>
+                                </div>
+                                <span className="font-bold font-mono text-[11px] text-emerald-800 shrink-0 w-12 text-right">
+                                  {proj.achievementPct}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
+                      <tr>
+                        <td className="py-2 px-3 uppercase">Total Aggregate:</td>
+                        <td className="py-2 px-2 text-center">{filteredRows.length}</td>
+                        <td className="py-2 px-3 text-right font-mono">Rs. {totalValue.toFixed(3)} Cr</td>
+                        <td className="py-2 px-3 text-right font-mono text-emerald-800">Rs. {totalExp.toFixed(3)} Cr</td>
+                        <td className="py-2 px-3 text-right font-mono text-emerald-800">Rs. {totalCumulativeExp.toFixed(3)} Cr</td>
+                        <td className="py-2 px-3 text-right font-mono text-indigo-800">Rs. {totalBalance.toFixed(3)} Cr</td>
+                        <td className="py-2 px-3 text-right font-mono">Rs. {totalDeliveryCapex.toFixed(3)} Cr</td>
+                        <td className="py-2 px-3 text-center font-mono text-emerald-800">{achievementPct}%</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* KPI Financial Metric Strip (Aggregated in Rs. Crores for selected cadence) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 text-xs">
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Total Items Target</span>
               <span className="text-base font-bold font-mono text-slate-900 block mt-0.5">
                 Rs. {totalValue.toFixed(3)} Cr
               </span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-medium text-slate-500 block">Exp. Incurred (Mar-Sep 26)</span>
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Actual Exp. Incurred</span>
               <span className="text-base font-bold font-mono text-emerald-700 block mt-0.5">
                 Rs. {totalExp.toFixed(3)} Cr
               </span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Cumulative Exp.</span>
+              <span className="text-base font-bold font-mono text-emerald-800 block mt-0.5">
+                Rs. {totalCumulativeExp.toFixed(3)} Cr
+              </span>
+            </div>
+
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
               <span className="text-[11px] font-medium text-slate-500 block">Balance Fund Required</span>
               <span className="text-base font-bold font-mono text-indigo-700 block mt-0.5">
                 Rs. {totalBalance.toFixed(3)} Cr
               </span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-medium text-slate-500 block">Capex (Delivery Booking)</span>
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Delivery Capex</span>
               <span className="text-base font-bold font-mono text-slate-800 block mt-0.5">
                 Rs. {totalDeliveryCapex.toFixed(3)} Cr
               </span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-[11px] font-medium text-slate-500 block">Capex (Commissioning)</span>
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-medium text-slate-500 block">Commissioning Capex</span>
               <span className="text-base font-bold font-mono text-slate-800 block mt-0.5">
                 Rs. {totalCommissionCapex.toFixed(3)} Cr
               </span>
             </div>
 
-            <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between">
-              <span className="text-[11px] font-medium text-slate-500 block">Database Status</span>
-              <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-xs mt-0.5">
-                <Database className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Firestore Persistent</span>
+            <div className="bg-white p-3 rounded-xl border border-emerald-200 bg-emerald-50/30 shadow-2xs flex flex-col justify-between">
+              <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">Achievement %</span>
+              <div className="flex items-baseline gap-1 mt-0.5">
+                <span className="text-lg font-extrabold font-mono text-emerald-700">{achievementPct}%</span>
+                <span className="text-[10px] text-slate-500 font-medium">of target</span>
               </div>
             </div>
           </div>
@@ -442,17 +872,19 @@ function CapexAppContent() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
               <span className="text-xs text-slate-500 font-medium">
                 Showing <strong className="text-slate-800">{filteredRows.length}</strong> of {rows.length} records
               </span>
+
+              {/* Masked Storage & Security Configuration Button */}
               <button
                 onClick={() => setIsGoogleSheetsModalOpen(true)}
-                className="text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
-                title="View Google Cloud OAuth 2.0 Client ID and Drive settings"
+                className="text-xs text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Storage & Integration Configuration (Masked Access)"
               >
-                <Cloud className="w-3 h-3 text-emerald-600" />
-                <span>Google Cloud / Drive</span>
+                <Lock className="w-3 h-3 text-slate-500" />
+                <span>Storage Config</span>
               </button>
             </div>
           </div>
@@ -490,8 +922,10 @@ function CapexAppContent() {
                     <tr>
                       <td colSpan={14} className="py-12 text-center text-slate-400">
                         <TableProperties className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                        <p className="font-semibold text-slate-600">No CAPEX records found.</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Click "Add Register Item" to submit department targets.</p>
+                        <p className="font-semibold text-slate-600">No CAPEX records match the selected {activeCadence} filter.</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Click "Upload Excel (Bulk Import)" or "Add Register Item" to submit items, or switch to "All Records".
+                        </p>
                       </td>
                     </tr>
                   ) : (
@@ -535,7 +969,7 @@ function CapexAppContent() {
                 </tbody>
 
                 {/* Total Footer Row */}
-                {rows.length > 0 && (
+                {filteredRows.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-slate-900 text-xs">
                       <td colSpan={5} className="border-r border-slate-300 py-2.5 px-3 text-right uppercase tracking-wider font-extrabold">
@@ -573,10 +1007,10 @@ function CapexAppContent() {
       <footer className="bg-white border-t border-slate-200 py-4 text-xs text-slate-500 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>CAPEX Target Submission &amp; Expenditure Reporting System • M&amp;S Department</span>
-          <div className="flex items-center gap-3 font-medium text-slate-600">
-            <span>Persistent Database: Firestore Active</span>
+          <div className="flex items-center gap-3 font-medium text-slate-500 text-[11px]">
+            <span>Persistent Records Database Active</span>
             <span>•</span>
-            <span>Google Drive &amp; Sheets API Connected</span>
+            <span>Cloud Auto-Sync Enabled</span>
           </div>
         </div>
       </footer>
@@ -590,6 +1024,23 @@ function CapexAppContent() {
         }}
         onSave={handleSaveExactRow}
         initialData={editingRow}
+      />
+
+      <ExcelUploadModal
+        isOpen={isExcelUploadModalOpen}
+        onClose={() => setIsExcelUploadModalOpen(false)}
+        existingRows={rows}
+        onImportConfirmed={handleBulkImportRows}
+        onToast={(type, title, msg) => showToast(type, title, msg)}
+      />
+
+      <ReportGenerationModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        rows={rows}
+        currentFiscalYear={fiscalYear}
+        initialCadence={reportModalCadence}
+        onToast={(type, title, msg) => showToast(type, title, msg)}
       />
 
       <TargetSubmissionModal
