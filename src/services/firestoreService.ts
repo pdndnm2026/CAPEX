@@ -3,6 +3,7 @@ import {
   doc,
   getDocs,
   setDoc,
+  deleteDoc,
   onSnapshot,
   getDoc,
   query,
@@ -156,6 +157,29 @@ export async function batchSaveCapexEntriesToDb(entries: CapexRow[]): Promise<vo
   }
 }
 
+export async function deleteCapexEntryFromDb(id: string): Promise<void> {
+  const path = `${COLLECTIONS.ENTRIES}/${id}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.ENTRIES, id));
+    await recordAuditLog({
+      action: 'TARGET_DELETED',
+      entityType: 'EXACT_ROW',
+      entityId: id,
+      entityTitle: `CAPEX Entry ${id}`,
+      user: auth.currentUser?.email || 'M&S Engineer (Portal)',
+      details: `Deleted 13-column register record ${id}`,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function deleteMultipleCapexEntriesFromDb(ids: string[]): Promise<void> {
+  for (const id of ids) {
+    await deleteCapexEntryFromDb(id);
+  }
+}
+
 // ==========================================
 // 2. CAPEX TARGETS & APPROVAL WORKFLOWS
 // ==========================================
@@ -219,6 +243,23 @@ export async function batchSaveTargetsToDb(targets: CapexTarget[]): Promise<void
   }
 }
 
+export async function deleteTargetFromDb(id: string): Promise<void> {
+  const path = `${COLLECTIONS.TARGETS}/${id}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.TARGETS, id));
+    await recordAuditLog({
+      action: 'TARGET_DELETED',
+      entityType: 'TARGET',
+      entityId: id,
+      entityTitle: `Target ${id}`,
+      user: auth.currentUser?.email || 'M&S Engineer (Portal)',
+      details: `Deleted CAPEX Target ${id}`,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
 // ==========================================
 // 3. DAILY EXPENDITURE RECORDS & VOUCHERS
 // ==========================================
@@ -279,6 +320,23 @@ export async function saveExpenseToDb(expense: ExpenseRecord): Promise<void> {
 export async function batchSaveExpensesToDb(expenses: ExpenseRecord[]): Promise<void> {
   for (const e of expenses) {
     await setDoc(doc(db, COLLECTIONS.EXPENSES, e.id), e, { merge: true });
+  }
+}
+
+export async function deleteExpenseFromDb(id: string): Promise<void> {
+  const path = `${COLLECTIONS.EXPENSES}/${id}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.EXPENSES, id));
+    await recordAuditLog({
+      action: 'EXPENSE_DELETED',
+      entityType: 'EXPENSE',
+      entityId: id,
+      entityTitle: `Expense ${id}`,
+      user: auth.currentUser?.email || 'M&S Engineer (Portal)',
+      details: `Deleted expense record ${id}`,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 

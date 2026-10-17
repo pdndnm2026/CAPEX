@@ -130,8 +130,10 @@ export interface AuditTrailEntry {
     | 'TARGET_UPDATED'
     | 'TARGET_APPROVED'
     | 'TARGET_REJECTED'
+    | 'TARGET_DELETED'
     | 'EXPENSE_BOOKED'
     | 'EXPENSE_UPDATED'
+    | 'EXPENSE_DELETED'
     | 'DRIVE_SYNC'
     | 'REPORT_EXPORTED'
     | 'REMINDER_SENT';

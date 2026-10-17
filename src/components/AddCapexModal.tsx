@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { CapexRow } from '../types/capexFormat';
-import { X, Check, Plus, Save } from 'lucide-react';
+import { X, Check, Plus, Save, Trash2 } from 'lucide-react';
 
 interface AddCapexModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (row: Omit<CapexRow, 'id' | 'slNo'>, editId?: string) => void;
   initialData?: CapexRow | null;
+  onDelete?: (id: string) => void;
 }
 
 export const AddCapexModal: React.FC<AddCapexModalProps> = ({
@@ -14,6 +15,7 @@ export const AddCapexModal: React.FC<AddCapexModalProps> = ({
   onClose,
   onSave,
   initialData,
+  onDelete,
 }) => {
   const [projectName, setProjectName] = useState('');
   const [deptName, setDeptName] = useState('');
@@ -344,10 +346,26 @@ export const AddCapexModal: React.FC<AddCapexModalProps> = ({
 
           {/* Footer Buttons */}
           <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0"></span>
-              <span>Submissions automatically save to Central Drive storage (No login required).</span>
-            </span>
+            {initialData && onDelete ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (initialData.id) {
+                    onDelete(initialData.id);
+                  }
+                }}
+                className="px-3.5 py-2 font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 text-xs cursor-pointer self-start sm:self-auto"
+                title="Delete this CAPEX item permanently"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Item</span>
+              </button>
+            ) : (
+              <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0"></span>
+                <span>Submissions automatically save to Central Drive storage (No login required).</span>
+              </span>
+            )}
             <div className="flex items-center gap-2 self-end sm:self-auto">
               <button
                 type="button"

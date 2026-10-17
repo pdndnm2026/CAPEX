@@ -15,6 +15,7 @@ import {
   Info,
   ShieldCheck,
   FileUp,
+  Trash2,
 } from 'lucide-react';
 
 interface ParsedRecord {
@@ -329,6 +330,23 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
     return true;
   });
 
+  // Preview Record Deletion Handlers
+  const handleDeletePreviewRecord = (tempId: string) => {
+    setParsedRecords((prev) => prev.filter((r) => r.tempId !== tempId));
+  };
+
+  const handleClearErrorRecords = () => {
+    setParsedRecords((prev) => prev.filter((r) => r.status !== 'error'));
+    setFormatErrors([]);
+  };
+
+  const handleClearAllRecords = () => {
+    setParsedRecords([]);
+    setFormatErrors([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setSelectedFile(null);
+  };
+
   // Confirm import
   const handleConfirmImport = () => {
     if (recordsToImport.length === 0) {
@@ -593,13 +611,37 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
               {/* Records Preview Table */}
               {!isParsing && parsedRecords.length > 0 && (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
-                      Records Preview ({visiblePreviewRecords.length} in view)
-                    </span>
-                    <span className="text-[11px] text-slate-500">
-                      All monetary values in Rs. Crores
-                    </span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
+                        Records Preview ({visiblePreviewRecords.length} in view)
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        • You can remove individual items or clear errors before importing
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {errorCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearErrorRecords}
+                          className="text-[10px] text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-lg cursor-pointer font-semibold flex items-center gap-1 transition-colors"
+                          title="Remove all rows with validation errors from the import list"
+                        >
+                          <Trash2 className="w-2.5 h-2.5 text-rose-600" />
+                          <span>Remove Errors ({errorCount})</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleClearAllRecords}
+                        className="text-[10px] text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg cursor-pointer font-medium flex items-center gap-1 transition-colors"
+                        title="Remove all parsed records and re-upload"
+                      >
+                        <Trash2 className="w-2.5 h-2.5 text-slate-400" />
+                        <span>Clear All</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[260px] overflow-y-auto shadow-2xs">
@@ -616,6 +658,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                           <th className="py-2 px-2.5 text-right">Exp (₹ Cr)</th>
                           <th className="py-2 px-2.5 text-right">Balance (₹ Cr)</th>
                           <th className="py-2 px-2.5">Delivery</th>
+                          <th className="py-2 px-2 text-center w-12">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
@@ -664,6 +707,16 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                               {rec.data.balanceFundRequired || '0'}
                             </td>
                             <td className="py-1.5 px-2.5 text-slate-600">{rec.data.deliveryMonthYear || '-'}</td>
+                            <td className="py-1.5 px-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePreviewRecord(rec.tempId)}
+                                title="Delete this item from import list"
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>

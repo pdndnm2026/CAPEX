@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CapexTarget, TargetStatus } from '../types/capex';
 import { useCapex } from '../context/CapexContext';
 import { formatCurrencyValue, generateTargetStatusUpdateNotification, buildWhatsAppUrl } from '../utils/whatsapp';
-import { X, CheckCircle, AlertTriangle, Send, FileCheck2, User, Phone, ShieldCheck } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle, Send, FileCheck2, User, Phone, ShieldCheck, Trash2 } from 'lucide-react';
 
 interface TargetReviewModalProps {
   target: CapexTarget | null;
@@ -15,7 +15,7 @@ export const TargetReviewModal: React.FC<TargetReviewModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { reviewTarget, currencyUnit, logWhatsAppDispatch } = useCapex();
+  const { reviewTarget, deleteTarget, currencyUnit, logWhatsAppDispatch } = useCapex();
 
   const [status, setStatus] = useState<TargetStatus>('M&S Approved');
   const [approvedBudget, setApprovedBudget] = useState<string>('');
@@ -236,29 +236,46 @@ export const TargetReviewModal: React.FC<TargetReviewModalProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-end gap-3">
+          <div className="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+              onClick={() => {
+                if (window.confirm(`Are you sure you want to delete target [${target.targetCode}] "${target.title}"?`)) {
+                  deleteTarget(target.id);
+                  onClose();
+                }
+              }}
+              className="px-3.5 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Delete this target item"
             >
-              Cancel
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Target</span>
             </button>
-            <button
-              type="button"
-              onClick={() => handleSave(false)}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              Save Without WhatsApp
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSave(notifyDepartmentOnWhatsApp)}
-              className="px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm transition-colors flex items-center gap-2"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Save &amp; Dispatch via WhatsApp</span>
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Save Without WhatsApp
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(notifyDepartmentOnWhatsApp)}
+                className="px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Save &amp; Dispatch via WhatsApp</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

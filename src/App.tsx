@@ -38,6 +38,8 @@ import {
   subscribeToCapexEntries,
   saveCapexEntryToDb,
   batchSaveCapexEntriesToDb,
+  deleteCapexEntryFromDb,
+  deleteMultipleCapexEntriesFromDb,
 } from './services/firestoreService';
 
 import {
@@ -45,6 +47,8 @@ import {
   Send,
   Plus,
   Edit2,
+  Trash2,
+  AlertTriangle,
   Search,
   TableProperties,
   Cloud,
@@ -66,6 +70,7 @@ import {
   FileText,
   BarChart3,
   RefreshCw,
+  X,
 } from 'lucide-react';
 
 const STORAGE_KEY = 'capex_exact_rows_v3';
@@ -89,6 +94,12 @@ function CapexAppContent() {
   // Modal States
   const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<CapexRow | null>(null);
+
+  // Item Deletion States
+  const [rowToDelete, setRowToDelete] = useState<CapexRow | null>(null);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Bulk Excel Upload Modal State
   const [isExcelUploadModalOpen, setIsExcelUploadModalOpen] = useState(false);
@@ -144,9 +155,11 @@ function CapexAppContent() {
   useEffect(() => {
     let isInitialMount = true;
     const unsub = subscribeToCapexEntries((dbEntries) => {
-      if (dbEntries && dbEntries.length > 0) {
+      if (!isInitialMount) {
+        setRows(dbEntries || []);
+      } else if (dbEntries && dbEntries.length > 0) {
         setRows(dbEntries);
-      } else if (isInitialMount && rows.length > 0) {
+      } else if (rows.length > 0) {
         // Seed existing rows to Firestore permanently on first boot
         batchSaveCapexEntriesToDb(rows).catch(() => {});
       }
@@ -251,6 +264,82 @@ function CapexAppContent() {
   const handleEditExactRow = (row: CapexRow) => {
     setEditingRow(row);
     setIsAddRowModalOpen(true);
+  };
+
+  // Single Item Deletion Handler
+  const handleConfirmDeleteSingle = async () => {
+    if (!rowToDelete) return;
+    setIsDeleting(true);
+    const targetId = rowToDelete.id;
+    const itemName = rowToDelete.itemName;
+
+    const remaining = rows
+      .filter((r) => r.id !== targetId)
+      .map((r, i) => ({ ...r, slNo: i + 1 }));
+
+    setRows(remaining);
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      next.delete(targetId);
+      return next;
+    });
+    setRowToDelete(null);
+
+    try {
+      await deleteCapexEntryFromDb(targetId);
+    } catch (err) {
+      console.warn('Firestore delete notice:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+
+    showToast('success', 'Item Deleted', `Successfully removed "${itemName}" from register.`);
+    autoSaveToCentralDrive(remaining).catch(() => {});
+  };
+
+  // Bulk Deletion Handler
+  const handleConfirmBulkDelete = async () => {
+    if (selectedRowIds.size === 0) return;
+    setIsDeleting(true);
+    const idsToDelete = Array.from(selectedRowIds);
+    const count = idsToDelete.length;
+
+    const remaining = rows
+      .filter((r) => !selectedRowIds.has(r.id))
+      .map((r, i) => ({ ...r, slNo: i + 1 }));
+
+    setRows(remaining);
+    setSelectedRowIds(new Set());
+    setIsBulkDeleteModalOpen(false);
+
+    try {
+      await deleteMultipleCapexEntriesFromDb(idsToDelete);
+    } catch (err) {
+      console.warn('Firestore bulk delete notice:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+
+    showToast('success', 'Items Deleted', `Successfully deleted ${count} selected items from CAPEX Register.`);
+    autoSaveToCentralDrive(remaining).catch(() => {});
+  };
+
+  // Checkbox Selection Toggles
+  const handleToggleSelectRow = (id: string) => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (filteredRows.length > 0 && selectedRowIds.size === filteredRows.length) {
+      setSelectedRowIds(new Set());
+    } else {
+      setSelectedRowIds(new Set(filteredRows.map((r) => r.id)));
+    }
   };
 
   // Filter 13-column register rows by Cadence, Date/Month/Quarter, Dept, and Search query
@@ -889,6 +978,40 @@ function CapexAppContent() {
             </div>
           </div>
 
+          {/* Multi-Selection Bulk Action Bar */}
+          {selectedRowIds.size > 0 && (
+            <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in duration-150">
+              <div className="flex items-center gap-2.5">
+                <div className="w-6 h-6 rounded-lg bg-rose-600 text-white flex items-center justify-center font-bold text-xs">
+                  {selectedRowIds.size}
+                </div>
+                <div>
+                  <span className="font-bold text-rose-900 block">
+                    {selectedRowIds.size} {selectedRowIds.size === 1 ? 'item' : 'items'} selected
+                  </span>
+                  <span className="text-[11px] text-rose-700">
+                    You can delete the selected records permanently or clear selection.
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedRowIds(new Set())}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg font-medium text-xs cursor-pointer"
+                >
+                  Cancel Selection
+                </button>
+                <button
+                  onClick={() => setIsBulkDeleteModalOpen(true)}
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Selected ({selectedRowIds.size})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Exact 13-Column Register Table */}
           <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden">
             <div className="overflow-x-auto max-h-[620px]">
@@ -896,6 +1019,15 @@ function CapexAppContent() {
                 {/* Table Headers (Official M&S 3-tier header) */}
                 <thead className="bg-slate-800 text-white sticky top-0 z-20">
                   <tr className="border-b border-slate-700">
+                    <th rowSpan={2} className="border-r border-slate-700 py-2.5 px-2 text-center w-8">
+                      <input
+                        type="checkbox"
+                        checked={filteredRows.length > 0 && selectedRowIds.size === filteredRows.length}
+                        onChange={handleToggleSelectAll}
+                        aria-label="Select all rows"
+                        className="w-3.5 h-3.5 rounded border-slate-600 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                    </th>
                     <th rowSpan={2} className="border-r border-slate-700 py-2.5 px-3 text-center w-12 font-bold">Sl. No</th>
                     <th rowSpan={2} className="border-r border-slate-700 py-2.5 px-3 min-w-[130px] font-bold">Name of Project/Unit</th>
                     <th rowSpan={2} className="border-r border-slate-700 py-2.5 px-3 min-w-[140px] font-bold">Dept. Name</th>
@@ -907,7 +1039,7 @@ function CapexAppContent() {
                     <th colSpan={2} className="border-r border-slate-700 py-1.5 px-3 text-center bg-slate-900 font-bold">Delivery Booking</th>
                     <th colSpan={2} className="border-r border-slate-700 py-1.5 px-3 text-center bg-slate-900 font-bold">Commissioning Booking</th>
                     <th rowSpan={2} className="border-r border-slate-700 py-2.5 px-3 min-w-[140px] font-bold">Remarks</th>
-                    <th rowSpan={2} className="py-2.5 px-3 text-center w-24 font-bold">Record Status</th>
+                    <th rowSpan={2} className="py-2.5 px-3 text-center w-24 font-bold">Actions</th>
                   </tr>
                   <tr className="border-b border-slate-700 bg-slate-900/90 text-[11px] text-slate-300">
                     <th className="border-r border-slate-700 py-1 px-2 text-right">Value (₹ Cr)</th>
@@ -920,7 +1052,7 @@ function CapexAppContent() {
                 <tbody className="divide-y divide-slate-200">
                   {filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="py-12 text-center text-slate-400">
+                      <td colSpan={15} className="py-12 text-center text-slate-400">
                         <TableProperties className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                         <p className="font-semibold text-slate-600">No CAPEX records match the selected {activeCadence} filter.</p>
                         <p className="text-[11px] text-slate-400 mt-0.5">
@@ -930,7 +1062,16 @@ function CapexAppContent() {
                     </tr>
                   ) : (
                     filteredRows.map((row, idx) => (
-                      <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                      <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${selectedRowIds.has(row.id) ? 'bg-rose-50/40' : ''}`}>
+                        <td className="border-r border-slate-200 py-2 px-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedRowIds.has(row.id)}
+                            onChange={() => handleToggleSelectRow(row.id)}
+                            aria-label={`Select ${row.itemName}`}
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                        </td>
                         <td className="border-r border-slate-200 py-2 px-3 text-center font-mono text-slate-500">{row.slNo || idx + 1}</td>
                         <td className="border-r border-slate-200 py-2 px-3 font-semibold text-slate-900">{row.projectName}</td>
                         <td className="border-r border-slate-200 py-2 px-3 text-slate-700">{row.deptName}</td>
@@ -944,23 +1085,23 @@ function CapexAppContent() {
                         <td className="border-r border-slate-200 py-2 px-3 text-right font-mono text-slate-800">{row.commissionCapexValue}</td>
                         <td className="border-r border-slate-200 py-2 px-3 text-center text-[11px] text-slate-600">{row.commissionMonth}</td>
                         <td className="border-r border-slate-200 py-2 px-3 text-slate-600 truncate max-w-[150px]">{row.remarks}</td>
-                        {/* Permanent Record: Edit permitted, Deletion forbidden */}
+                        {/* Item Row Actions: Edit & Delete */}
                         <td className="py-2 px-3 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
+                          <div className="flex items-center justify-center gap-1">
                             <button
                               onClick={() => handleEditExactRow(row)}
-                              title="Edit row remarks or status"
-                              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
+                              title="Edit item details"
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <span
-                              title="Permanent Record: Stored in Firestore database, deletion forbidden"
-                              className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
+                            <button
+                              onClick={() => setRowToDelete(row)}
+                              title="Delete this CAPEX item"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                             >
-                              <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
-                              Locked
-                            </span>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -972,7 +1113,7 @@ function CapexAppContent() {
                 {filteredRows.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-slate-900 text-xs">
-                      <td colSpan={5} className="border-r border-slate-300 py-2.5 px-3 text-right uppercase tracking-wider font-extrabold">
+                      <td colSpan={6} className="border-r border-slate-300 py-2.5 px-3 text-right uppercase tracking-wider font-extrabold">
                         Total (Rs. Crores):
                       </td>
                       <td className="border-r border-slate-300 py-2.5 px-3 font-mono font-bold text-slate-900">
@@ -1024,6 +1165,12 @@ function CapexAppContent() {
         }}
         onSave={handleSaveExactRow}
         initialData={editingRow}
+        onDelete={(id) => {
+          setIsAddRowModalOpen(false);
+          setEditingRow(null);
+          const r = rows.find((x) => x.id === id);
+          if (r) setRowToDelete(r);
+        }}
       />
 
       <ExcelUploadModal
@@ -1097,6 +1244,139 @@ function CapexAppContent() {
           setAccessToken(token);
         }}
       />
+
+      {/* Single Item Deletion Confirmation Modal */}
+      {rowToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Delete CAPEX Item?</h3>
+                  <p className="text-xs text-slate-500">
+                    This will permanently remove the item from the CAPEX Register and database.
+                  </p>
+                </div>
+              </div>
+
+              {/* Item Details Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs">
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                    Item / Works Description
+                  </span>
+                  <span className="font-bold text-slate-900 block mt-0.5">
+                    {rowToDelete.itemName}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Project / Unit:</span>
+                    <span className="font-semibold text-slate-800">{rowToDelete.projectName || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">WBS Element:</span>
+                    <span className="font-mono text-slate-700">{rowToDelete.wbsElement || '-'}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Item Value:</span>
+                    <span className="font-mono font-bold text-slate-900">Rs. {rowToDelete.itemValue} Cr</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Incurred Exp:</span>
+                    <span className="font-mono font-bold text-emerald-700">Rs. {rowToDelete.expenditureIncurred} Cr</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRowToDelete(null)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteSingle}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeleting ? 'Deleting...' : 'Delete Item'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Items Deletion Confirmation Modal */}
+      {isBulkDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Delete {selectedRowIds.size} Selected {selectedRowIds.size === 1 ? 'Item' : 'Items'}?
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Are you sure you want to delete these records? All selected items will be removed from the database and register totals will be re-calculated.
+                  </p>
+                </div>
+              </div>
+
+              {/* Selected List Preview */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 text-xs">
+                {rows
+                  .filter((r) => selectedRowIds.has(r.id))
+                  .map((item, idx) => (
+                    <div key={item.id} className="flex items-center justify-between py-1 border-b border-slate-200 last:border-0">
+                      <div className="truncate mr-3">
+                        <span className="font-semibold text-slate-800 block truncate">{idx + 1}. {item.itemName}</span>
+                        <span className="text-[10px] text-slate-500">{item.projectName} • {item.wbsElement || 'No WBS'}</span>
+                      </div>
+                      <span className="font-mono font-bold text-slate-900 shrink-0">
+                        Rs. {item.itemValue} Cr
+                      </span>
+                    </div>
+                  ))}
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkDeleteModalOpen(false)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmBulkDelete}
+                  disabled={isDeleting}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeleting ? 'Deleting...' : `Confirm Delete (${selectedRowIds.size})`}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast />
 

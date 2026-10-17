@@ -19,6 +19,8 @@ import { CapexSummaryMetrics } from '../utils/whatsapp';
 import {
   saveTargetToDb,
   saveExpenseToDb,
+  deleteTargetFromDb,
+  deleteExpenseFromDb,
   subscribeToTargets,
   subscribeToExpenses,
   subscribeToAuditTrail,
@@ -297,13 +299,20 @@ export const CapexProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  // STRICT IMMUTABILITY: Deletion is permanently blocked per user specification
-  const deleteTarget = (_id: string) => {
+  // Item Deletion: Deletes target from state and persistent Firestore database
+  const deleteTarget = async (id: string) => {
+    const existing = targets.find((t) => t.id === id);
+    setTargets((prev) => prev.filter((t) => t.id !== id));
     showToast(
-      'error',
-      'Action Prohibited: Permanent Record',
-      'Database Security: CAPEX target records are permanently stored in the corporate ledger and cannot be deleted.'
+      'success',
+      'Target Deleted',
+      existing ? `Target [${existing.targetCode}] has been removed.` : 'Target deleted successfully.'
     );
+    try {
+      await deleteTargetFromDb(id);
+    } catch (e) {
+      console.warn('Target delete notice:', e);
+    }
   };
 
   const reviewTarget = async (
@@ -381,13 +390,20 @@ export const CapexProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return newExpense;
   };
 
-  // STRICT IMMUTABILITY: Deletion is permanently blocked
-  const deleteExpense = (_id: string) => {
+  // Expense Deletion: Deletes expense record from state and persistent Firestore database
+  const deleteExpense = async (id: string) => {
+    const existing = expenses.find((e) => e.id === id);
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
     showToast(
-      'error',
-      'Action Prohibited: Permanent Ledger',
-      'Database Security: Expenditure records are statutory ledger entries and cannot be deleted.'
+      'success',
+      'Expense Deleted',
+      existing ? `Expense voucher [${existing.expenseCode}] has been removed.` : 'Expense record deleted.'
     );
+    try {
+      await deleteExpenseFromDb(id);
+    } catch (e) {
+      console.warn('Expense delete notice:', e);
+    }
   };
 
   const addOfficer = (officer: Omit<MsOfficer, 'id'>) => {

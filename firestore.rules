@@ -8,12 +8,11 @@ service cloud.firestore {
     }
 
     // CAPEX Target & Reporting entries (Exact 13-column format)
-    // Deletion is strictly prohibited: records once entered are permanently preserved.
     match /capex_entries/{entryId} {
       allow read: if true;
       allow create: if true;
       allow update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     // CAPEX Targets & Approval Workflows
@@ -21,7 +20,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if true;
       allow update: if true;
-      allow delete: if false;
+      allow delete: if true;
     }
 
     // Daily Expenditure & Vouchers
