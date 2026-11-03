@@ -26,6 +26,7 @@ import { WhatsAppDispatchModal } from './components/WhatsAppDispatchModal';
 import { WhatsAppSimpleModal } from './components/WhatsAppSimpleModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { Toast } from './components/Toast';
+import { SimpleCapexReportingView } from './components/SimpleCapexReportingView';
 
 import { initAuth, User, getAccessToken } from './services/googleAuth';
 import {
@@ -543,9 +544,22 @@ function CapexAppContent() {
         onOpenGoogleCloudModal={() => setIsGoogleSheetsModalOpen(true)}
       />
 
-      {/* Main Container: Sole CAPEX Reporting Tab (M&S 13-Column Register Format) */}
+      {/* Main Container: Reporting Tabs (13-Col Register, Daily Reporting, Monthly Reporting) */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5">
-        <div className="space-y-4">
+        {activeTab === 'daily_reporting' ? (
+          <SimpleCapexReportingView
+            initialCadence="daily"
+            fiscalYear={fiscalYear}
+            onToast={(type, title, msg) => showToast(type, title, msg)}
+          />
+        ) : activeTab === 'monthly_reporting' ? (
+          <SimpleCapexReportingView
+            initialCadence="monthly"
+            fiscalYear={fiscalYear}
+            onToast={(type, title, msg) => showToast(type, title, msg)}
+          />
+        ) : (
+          <div className="space-y-4">
           {/* Top Section Header Banner */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
@@ -1142,6 +1156,7 @@ function CapexAppContent() {
             </div>
           </div>
         </div>
+      )}
       </main>
 
       {/* Footer */}

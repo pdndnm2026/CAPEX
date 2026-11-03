@@ -15,9 +15,19 @@ import {
   Cloud,
   Database,
   Lock,
+  Calendar,
+  CalendarDays,
 } from 'lucide-react';
 
-export type NavTab = 'dashboard' | 'targets' | 'expenses' | 'register' | 'reports' | 'whatsapp';
+export type NavTab =
+  | 'register'
+  | 'daily_reporting'
+  | 'monthly_reporting'
+  | 'dashboard'
+  | 'targets'
+  | 'expenses'
+  | 'reports'
+  | 'whatsapp';
 
 interface NavbarProps {
   activeTab: NavTab;
@@ -118,16 +128,65 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Tab Navigation Row: Sole CAPEX Reporting Tab (M&S 13 Col Register) */}
-        <div className="flex items-center border-t border-slate-800 overflow-x-auto py-2 scrollbar-none text-xs">
+        {/* Tab Navigation Row: 3 Distinct Reporting Tabs */}
+        <div className="flex items-center gap-2 border-t border-slate-800 overflow-x-auto py-2 scrollbar-none text-xs">
+          {/* Tab 1: Comprehensive M&S 13-Col Register */}
           <button
             onClick={() => setActiveTab('register')}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all shrink-0 bg-emerald-600 text-white shadow-sm border border-emerald-500/50 cursor-pointer"
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeTab === 'register'
+                ? 'bg-emerald-600 text-white shadow-sm border border-emerald-500/50'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
+            }`}
           >
-            <TableProperties className="w-4 h-4 text-emerald-100" />
+            <TableProperties className="w-4 h-4 text-emerald-300" />
             <span className="text-sm">CAPEX Reporting Tab</span>
-            <span className="text-[10px] bg-emerald-800/80 text-emerald-200 border border-emerald-400/40 px-2 py-0.5 rounded font-mono font-medium">
-              M&amp;S 13-Col Register Format
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                activeTab === 'register' ? 'bg-emerald-800/80 text-emerald-200' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              M&amp;S 13-Col Register
+            </span>
+          </button>
+
+          {/* Tab 2: Separate Daily CAPEX Reporting */}
+          <button
+            onClick={() => setActiveTab('daily_reporting')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeTab === 'daily_reporting'
+                ? 'bg-indigo-600 text-white shadow-sm border border-indigo-500/50'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
+            }`}
+          >
+            <Calendar className="w-4 h-4 text-indigo-300" />
+            <span className="text-sm">Daily CAPEX Reporting</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                activeTab === 'daily_reporting' ? 'bg-indigo-800/80 text-indigo-200' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              Daily Entries
+            </span>
+          </button>
+
+          {/* Tab 3: Separate Monthly CAPEX Reporting */}
+          <button
+            onClick={() => setActiveTab('monthly_reporting')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+              activeTab === 'monthly_reporting'
+                ? 'bg-emerald-700 text-white shadow-sm border border-emerald-500/50'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
+            }`}
+          >
+            <CalendarDays className="w-4 h-4 text-emerald-300" />
+            <span className="text-sm">Monthly CAPEX Reporting</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                activeTab === 'monthly_reporting' ? 'bg-emerald-900/80 text-emerald-200' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              Monthly Entries
             </span>
           </button>
         </div>

@@ -15,6 +15,14 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    // Daily and Monthly simplified CAPEX reporting entries (Name of Item, PO No., PO Value, Date of Delivery, Payment Details)
+    match /simple_capex_reports/{reportId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if true;
+    }
+
     // CAPEX Targets & Approval Workflows
     match /capex_targets/{targetId} {
       allow read: if true;

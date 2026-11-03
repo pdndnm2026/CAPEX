@@ -13,6 +13,7 @@ import {
 import { db, auth } from './firebase';
 import { CapexRow } from '../types/capexFormat';
 import { CapexTarget, ExpenseRecord, AuditTrailEntry } from '../types/capex';
+import { SimpleCapexItem } from '../types/simpleCapexReport';
 
 export enum OperationType {
   CREATE = 'create',
@@ -68,6 +69,7 @@ export function handleFirestoreError(
 
 export const COLLECTIONS = {
   ENTRIES: 'capex_entries',
+  SIMPLE_REPORTS: 'simple_capex_reports',
   TARGETS: 'capex_targets',
   EXPENSES: 'capex_expenses',
   AUDIT: 'capex_audit_trail',
@@ -177,6 +179,117 @@ export async function deleteCapexEntryFromDb(id: string): Promise<void> {
 export async function deleteMultipleCapexEntriesFromDb(ids: string[]): Promise<void> {
   for (const id of ids) {
     await deleteCapexEntryFromDb(id);
+  }
+}
+
+// ==========================================
+// 1.1 SIMPLE DAILY & MONTHLY CAPEX REPORTS
+// Fields: itemName, poNumber, poValue, deliveryDate, paymentDetails (All Optional)
+// ==========================================
+
+export async function getSimpleCapexReportsFromDb(): Promise<SimpleCapexItem[]> {
+  try {
+    const querySnapshot = await getDocs(collection(db, COLLECTIONS.SIMPLE_REPORTS));
+    const items: SimpleCapexItem[] = [];
+    querySnapshot.forEach((docSnap) => {
+      items.push(docSnap.data() as SimpleCapexItem);
+    });
+    return items.sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.reportDate).getTime() || 0;
+      const timeB = new Date(b.createdAt || b.reportDate).getTime() || 0;
+      return timeB - timeA;
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, COLLECTIONS.SIMPLE_REPORTS);
+  }
+}
+
+export function subscribeToSimpleCapexReports(
+  onData: (items: SimpleCapexItem[]) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  const colRef = collection(db, COLLECTIONS.SIMPLE_REPORTS);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const items: SimpleCapexItem[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push(docSnap.data() as SimpleCapexItem);
+      });
+      items.sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.reportDate).getTime() || 0;
+        const timeB = new Date(b.createdAt || b.reportDate).getTime() || 0;
+        return timeB - timeA;
+      });
+      onData(items);
+    },
+    (error) => {
+      if (onError) onError(error);
+      handleFirestoreError(error, OperationType.GET, COLLECTIONS.SIMPLE_REPORTS);
+    }
+  );
+}
+
+export async function saveSimpleCapexReportToDb(item: SimpleCapexItem): Promise<void> {
+  const path = `${COLLECTIONS.SIMPLE_REPORTS}/${item.id}`;
+  try {
+    const cleanItem: SimpleCapexItem = {
+      id: item.id,
+      slNo: item.slNo || 1,
+      cadence: item.cadence || 'daily',
+      reportDate: item.reportDate || new Date().toISOString().slice(0, 10),
+      month: item.month || '',
+      fiscalYear: item.fiscalYear || '',
+      itemName: item.itemName ? String(item.itemName).trim() : '',
+      poNumber: item.poNumber ? String(item.poNumber).trim() : '',
+      poValue: item.poValue !== undefined && item.poValue !== null ? String(item.poValue).trim() : '',
+      deliveryDate: item.deliveryDate ? String(item.deliveryDate).trim() : '',
+      paymentDetails: item.paymentDetails ? String(item.paymentDetails).trim() : '',
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await setDoc(doc(db, COLLECTIONS.SIMPLE_REPORTS, item.id), cleanItem, { merge: true });
+
+    await recordAuditLog({
+      action: 'TARGET_SUBMITTED',
+      entityType: 'EXACT_ROW',
+      entityId: item.id,
+      entityTitle: `${item.cadence.toUpperCase()} CAPEX: ${item.itemName || item.poNumber || 'Entry'}`,
+      user: auth.currentUser?.email || 'M&S Portal User',
+      details: `Saved ${item.cadence} CAPEX report entry. PO: ${item.poNumber || 'N/A'}, Value: ${item.poValue || 'N/A'}`,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function batchSaveSimpleCapexReportsToDb(items: SimpleCapexItem[]): Promise<void> {
+  for (const item of items) {
+    await saveSimpleCapexReportToDb(item);
+  }
+}
+
+export async function deleteSimpleCapexReportFromDb(id: string): Promise<void> {
+  const path = `${COLLECTIONS.SIMPLE_REPORTS}/${id}`;
+  try {
+    await deleteDoc(doc(db, COLLECTIONS.SIMPLE_REPORTS, id));
+    await recordAuditLog({
+      action: 'TARGET_DELETED',
+      entityType: 'EXACT_ROW',
+      entityId: id,
+      entityTitle: `Simple CAPEX Entry ${id}`,
+      user: auth.currentUser?.email || 'M&S Portal User',
+      details: `Deleted simple CAPEX report entry ${id}`,
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function deleteMultipleSimpleCapexReportsFromDb(ids: string[]): Promise<void> {
+  for (const id of ids) {
+    await deleteSimpleCapexReportFromDb(id);
   }
 }
 
