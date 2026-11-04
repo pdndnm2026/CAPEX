@@ -34,11 +34,13 @@ import {
   X,
   Sparkles,
   Save,
+  Building2,
+  Layers,
 } from 'lucide-react';
 
-const LOCAL_STORAGE_KEY = 'capex_simple_reports_v1';
+const LOCAL_STORAGE_KEY = 'capex_simple_reports_v2';
 
-// Initial seed data if local and Firestore are completely empty
+// Initial seed data with Department Name included
 const INITIAL_SIMPLE_REPORTS: SimpleCapexItem[] = [
   {
     id: 'seed-daily-1',
@@ -47,6 +49,8 @@ const INITIAL_SIMPLE_REPORTS: SimpleCapexItem[] = [
     reportDate: new Date().toISOString().slice(0, 10),
     month: 'November 2026',
     fiscalYear: 'FY 2026-27',
+    deptName: 'MECHANICAL SERVICES',
+    projectName: 'DONIMALAI',
     itemName: 'Slurry Pump Impeller Unit (High Chrome)',
     poNumber: 'PO-26-MECH-419',
     poValue: '0.45',
@@ -61,6 +65,8 @@ const INITIAL_SIMPLE_REPORTS: SimpleCapexItem[] = [
     reportDate: new Date().toISOString().slice(0, 10),
     month: 'November 2026',
     fiscalYear: 'FY 2026-27',
+    deptName: 'MATERIAL MANAGEMENT',
+    projectName: 'KIRANDUL',
     itemName: 'Conveyor Belting Steel Cord 1200mm',
     poNumber: 'PO-26-MAT-108',
     poValue: '1.20',
@@ -75,6 +81,8 @@ const INITIAL_SIMPLE_REPORTS: SimpleCapexItem[] = [
     reportDate: '2026-11-01',
     month: 'November 2026',
     fiscalYear: 'FY 2026-27',
+    deptName: 'MINING / EXCAVATION',
+    projectName: 'BACHELE',
     itemName: 'Excavator Undercarriage Overhaul Spares Kit',
     poNumber: 'PO-26-EXC-771',
     poValue: '2.10',
@@ -89,6 +97,8 @@ const INITIAL_SIMPLE_REPORTS: SimpleCapexItem[] = [
     reportDate: '2026-11-01',
     month: 'November 2026',
     fiscalYear: 'FY 2026-27',
+    deptName: 'ELECTRICAL',
+    projectName: 'NAGARNAR',
     itemName: 'Transformer 33kV/6.6kV Maintenance Package',
     poNumber: 'PO-26-ELEC-305',
     poValue: '3.50',
@@ -98,16 +108,30 @@ const INITIAL_SIMPLE_REPORTS: SimpleCapexItem[] = [
   },
 ];
 
+const STANDARD_DEPTS = [
+  'MECHANICAL SERVICES',
+  'ELECTRICAL',
+  'MINING',
+  'CIVIL',
+  'MATERIAL MANAGEMENT',
+  'FINANCE',
+  'OPERATIONS',
+  'SAFETY & ENVIRONMENT',
+  'TELECOM & IT',
+];
+
 interface SimpleCapexReportingViewProps {
   initialCadence?: SimpleCapexCadence;
   fiscalYear: string;
   onToast: (type: 'success' | 'info' | 'warning' | 'error', title: string, message: string) => void;
+  onSwitchToFullRegisterFormat?: () => void;
 }
 
 export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> = ({
   initialCadence = 'daily',
   fiscalYear,
   onToast,
+  onSwitchToFullRegisterFormat,
 }) => {
   // Active Cadence: Daily or Monthly
   const [cadence, setCadence] = useState<SimpleCapexCadence>(initialCadence);
@@ -132,6 +156,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedDeptFilter, setSelectedDeptFilter] = useState<string>('All');
   const [filterDailyDate, setFilterDailyDate] = useState<string>('all'); // 'all' or 'YYYY-MM-DD'
   const [filterMonth, setFilterMonth] = useState<string>('all'); // 'all' or 'Month Year'
 
@@ -145,7 +170,9 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<SimpleCapexItem | null>(null);
 
-  // Modal Form States (5 NON-MANDATORY FIELDS)
+  // Modal Form States (ALL NON-MANDATORY)
+  const [formDeptName, setFormDeptName] = useState('');
+  const [formProjectName, setFormProjectName] = useState('');
   const [formItemName, setFormItemName] = useState('');
   const [formPoNumber, setFormPoNumber] = useState('');
   const [formPoValue, setFormPoValue] = useState('');
@@ -155,7 +182,8 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
   const [formReportDate, setFormReportDate] = useState(new Date().toISOString().slice(0, 10));
   const [formMonth, setFormMonth] = useState('November 2026');
 
-  // Inline Quick Add Bar States (5 NON-MANDATORY FIELDS)
+  // Inline Quick Add Bar States (ALL NON-MANDATORY)
+  const [inlineDeptName, setInlineDeptName] = useState('');
   const [inlineItemName, setInlineItemName] = useState('');
   const [inlinePoNumber, setInlinePoNumber] = useState('');
   const [inlinePoValue, setInlinePoValue] = useState('');
@@ -186,10 +214,22 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
   }, [items]);
 
+  // Unique departments for filter dropdown
+  const uniqueDepartments = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((x) => {
+      if (x.deptName && x.deptName.trim() !== '') set.add(x.deptName.trim().toUpperCase());
+    });
+    STANDARD_DEPTS.forEach((d) => set.add(d));
+    return Array.from(set).sort();
+  }, [items]);
+
   // Open Edit Modal
   const handleEdit = (item: SimpleCapexItem) => {
     setEditingItem(item);
     setFormCadence(item.cadence);
+    setFormDeptName(item.deptName || '');
+    setFormProjectName(item.projectName || '');
     setFormItemName(item.itemName || '');
     setFormPoNumber(item.poNumber || '');
     setFormPoValue(item.poValue !== undefined ? String(item.poValue) : '');
@@ -204,6 +244,8 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
   const handleOpenAddModal = () => {
     setEditingItem(null);
     setFormCadence(cadence);
+    setFormDeptName('');
+    setFormProjectName('');
     setFormItemName('');
     setFormPoNumber('');
     setFormPoValue('');
@@ -225,6 +267,8 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
         reportDate: formReportDate,
         month: formMonth,
         fiscalYear,
+        deptName: formDeptName.trim().toUpperCase(),
+        projectName: formProjectName.trim().toUpperCase(),
         itemName: formItemName.trim(),
         poNumber: formPoNumber.trim(),
         poValue: formPoValue.trim(),
@@ -247,6 +291,8 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
         reportDate: formReportDate,
         month: formMonth,
         fiscalYear,
+        deptName: formDeptName.trim().toUpperCase(),
+        projectName: formProjectName.trim().toUpperCase(),
         itemName: formItemName.trim(),
         poNumber: formPoNumber.trim(),
         poValue: formPoValue.trim(),
@@ -268,18 +314,6 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
   const handleInlineAdd = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Check if completely blank (warn user softly but allow save if intentional)
-    const isTotallyBlank =
-      !inlineItemName.trim() &&
-      !inlinePoNumber.trim() &&
-      !inlinePoValue.trim() &&
-      !inlineDeliveryDate.trim() &&
-      !inlinePaymentDetails.trim();
-
-    if (isTotallyBlank) {
-      onToast('info', 'Blank Entry Note', 'Created an empty entry row as nothing is mandatory.');
-    }
-
     const newItem: SimpleCapexItem = {
       id: `simple-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       slNo: items.length + 1,
@@ -287,6 +321,8 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
       reportDate: new Date().toISOString().slice(0, 10),
       month: 'November 2026',
       fiscalYear,
+      deptName: inlineDeptName.trim().toUpperCase(),
+      projectName: '',
       itemName: inlineItemName.trim(),
       poNumber: inlinePoNumber.trim(),
       poValue: inlinePoValue.trim(),
@@ -300,6 +336,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
     setItems(newItems);
 
     // Clear inline inputs
+    setInlineDeptName('');
     setInlineItemName('');
     setInlinePoNumber('');
     setInlinePoValue('');
@@ -382,6 +419,13 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
       // Cadence filter: Daily or Monthly
       if (item.cadence !== cadence) return false;
 
+      // Department filter
+      if (selectedDeptFilter !== 'All') {
+        if ((item.deptName || '').toUpperCase() !== selectedDeptFilter.toUpperCase()) {
+          return false;
+        }
+      }
+
       // Daily date filter
       if (cadence === 'daily' && filterDailyDate !== 'all') {
         if (item.reportDate !== filterDailyDate) return false;
@@ -395,16 +439,17 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
       // Search query filter
       if (searchQuery.trim() !== '') {
         const q = searchQuery.toLowerCase();
+        const matchDept = (item.deptName || '').toLowerCase().includes(q);
         const matchItem = (item.itemName || '').toLowerCase().includes(q);
         const matchPo = (item.poNumber || '').toLowerCase().includes(q);
         const matchPayment = (item.paymentDetails || '').toLowerCase().includes(q);
         const matchDate = (item.deliveryDate || '').toLowerCase().includes(q);
-        if (!matchItem && !matchPo && !matchPayment && !matchDate) return false;
+        if (!matchDept && !matchItem && !matchPo && !matchPayment && !matchDate) return false;
       }
 
       return true;
     });
-  }, [items, cadence, filterDailyDate, filterMonth, searchQuery]);
+  }, [items, cadence, selectedDeptFilter, filterDailyDate, filterMonth, searchQuery]);
 
   const handleToggleSelectAll = () => {
     if (filteredItems.length > 0 && selectedIds.size === filteredItems.length) {
@@ -414,18 +459,20 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
     }
   };
 
-  // Summary Metrics for the active cadence
+  // Summary Metrics for active cadence
   const metrics = useMemo(() => {
     const totalCount = filteredItems.length;
     let totalPoVal = 0;
     let withDeliveryCount = 0;
     let withPaymentCount = 0;
+    const depts = new Set<string>();
 
     filteredItems.forEach((x) => {
       const val = parseFloat(String(x.poValue).replace(/[^0-9.-]/g, '')) || 0;
       totalPoVal += val;
       if (x.deliveryDate && x.deliveryDate.trim() !== '') withDeliveryCount++;
       if (x.paymentDetails && x.paymentDetails.trim() !== '') withPaymentCount++;
+      if (x.deptName && x.deptName.trim() !== '') depts.add(x.deptName.trim());
     });
 
     return {
@@ -433,6 +480,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
       totalPoVal,
       withDeliveryCount,
       withPaymentCount,
+      deptCount: depts.size,
     };
   }, [filteredItems]);
 
@@ -458,7 +506,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs uppercase font-bold tracking-wider text-indigo-800 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200 flex items-center gap-1.5">
               <Sparkles className="w-3 h-3 text-indigo-600" />
-              Simplified Entry (All Fields Optional)
+              Department-Wise CAPEX Reporting
             </span>
             <span className="text-xs text-slate-500 font-mono">[{fiscalYear}]</span>
             <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
@@ -476,7 +524,8 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
           </h1>
 
           <p className="text-xs text-slate-500 mt-1 max-w-3xl">
-            Quick 5-field entry: <strong>Name of Item</strong>, <strong>PO No.</strong>,{' '}
+            Official CAPEX Register Format with <strong>Name of Department</strong>,{' '}
+            <strong>Name of Item</strong>, <strong>PO No.</strong>,{' '}
             <strong>PO Value</strong>, <strong>Date of Delivery</strong>, and{' '}
             <strong>Payment Details</strong>. Nothing is mandatory. Fill any details available and save.
           </p>
@@ -484,6 +533,18 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
 
         {/* Tab & Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Format Switch Option */}
+          {onSwitchToFullRegisterFormat && (
+            <button
+              onClick={onSwitchToFullRegisterFormat}
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-semibold px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Open full 13-column M&S register format for this cadence"
+            >
+              <Layers className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Full 13-Col Register Format</span>
+            </button>
+          )}
+
           {/* Daily vs Monthly Switch Pills */}
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs">
             <button
@@ -495,7 +556,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
               }`}
             >
               <Calendar className="w-3.5 h-3.5" />
-              <span>Daily Reporting</span>
+              <span>Daily</span>
             </button>
             <button
               onClick={() => setCadence('monthly')}
@@ -506,7 +567,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
               }`}
             >
               <CalendarDays className="w-3.5 h-3.5" />
-              <span>Monthly Reporting</span>
+              <span>Monthly</span>
             </button>
           </div>
 
@@ -517,7 +578,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             title="Open entry modal to add a new record"
           >
             <Plus className="w-4 h-4 text-emerald-400" />
-            <span>Add {cadence === 'daily' ? 'Daily' : 'Monthly'} Entry</span>
+            <span>Add Entry</span>
           </button>
 
           {/* PDF Report Export */}
@@ -553,7 +614,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
       </div>
 
       {/* KPI Financial & Operations Metrics Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
           <div className="flex items-center justify-between text-slate-500">
             <span className="text-[11px] font-medium uppercase tracking-wider">Total Recorded Items</span>
@@ -573,7 +634,18 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
           <span className="text-xl font-bold font-mono text-emerald-700 block mt-1">
             Rs. {metrics.totalPoVal.toFixed(3)} Cr
           </span>
-          <span className="text-[10px] text-emerald-600 mt-0.5 block">Aggregated purchase order value</span>
+          <span className="text-[10px] text-emerald-600 mt-0.5 block">Aggregated PO value</span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-[11px] font-medium uppercase tracking-wider">Departments</span>
+            <Building2 className="w-4 h-4 text-indigo-600" />
+          </div>
+          <span className="text-xl font-bold font-mono text-slate-900 block mt-1">
+            {metrics.deptCount} Depts
+          </span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">With active CAPEX entries</span>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
@@ -589,17 +661,17 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-[11px] font-medium uppercase tracking-wider">Payment Terms Detailed</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider">Payment Details</span>
             <CreditCard className="w-4 h-4 text-indigo-500" />
           </div>
           <span className="text-xl font-bold font-mono text-slate-900 block mt-1">
             {metrics.withPaymentCount} of {metrics.totalCount}
           </span>
-          <span className="text-[10px] text-slate-400 mt-0.5 block">Payment details provided</span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">Payment terms documented</span>
         </div>
       </div>
 
-      {/* QUICK INLINE ENTRY CARD (Nothing Mandatory) */}
+      {/* QUICK INLINE ENTRY CARD (Including Name of Department, Nothing Mandatory) */}
       <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-4 rounded-2xl shadow-md border border-slate-800">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -614,15 +686,36 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             </span>
           </div>
           <span className="text-[11px] text-slate-400 hidden sm:inline">
-            Type available info &amp; click Add
+            Includes Department Name, Item, PO No., PO Value, Delivery Date &amp; Payment Details
           </span>
         </div>
 
-        <form onSubmit={handleInlineAdd} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 items-end">
-          {/* 1. Name of Item */}
+        <form onSubmit={handleInlineAdd} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5 items-end">
+          {/* Department Name Column Option */}
+          <div className="lg:col-span-2">
+            <label className="block text-[11px] font-medium text-slate-300 mb-1 flex items-center gap-1">
+              <Building2 className="w-3 h-3 text-indigo-400" />
+              <span>Dept. Name / Department</span>
+            </label>
+            <input
+              type="text"
+              list="inline-dept-options"
+              placeholder="e.g. MECHANICAL SERVICES"
+              value={inlineDeptName}
+              onChange={(e) => setInlineDeptName(e.target.value)}
+              className="w-full text-xs bg-slate-800/90 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-400 uppercase font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+            />
+            <datalist id="inline-dept-options">
+              {STANDARD_DEPTS.map((d) => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
+          </div>
+
+          {/* Name of Item */}
           <div className="lg:col-span-2">
             <label className="block text-[11px] font-medium text-slate-300 mb-1">
-              1. Name of Item
+              Name of Item / Works
             </label>
             <input
               type="text"
@@ -633,10 +726,10 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             />
           </div>
 
-          {/* 2. PO No. */}
+          {/* PO No. */}
           <div>
             <label className="block text-[11px] font-medium text-slate-300 mb-1">
-              2. PO No.
+              PO No.
             </label>
             <input
               type="text"
@@ -647,10 +740,10 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             />
           </div>
 
-          {/* 3. PO Value */}
+          {/* PO Value */}
           <div>
             <label className="block text-[11px] font-medium text-slate-300 mb-1">
-              3. PO Value (₹ Cr)
+              PO Value (₹ Cr)
             </label>
             <input
               type="text"
@@ -661,10 +754,10 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             />
           </div>
 
-          {/* 4. Date of Delivery */}
+          {/* Date of Delivery */}
           <div>
             <label className="block text-[11px] font-medium text-slate-300 mb-1">
-              4. Date of Delivery
+              Date of Delivery
             </label>
             <input
               type="date"
@@ -674,12 +767,12 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             />
           </div>
 
-          {/* 5. Payment Details + Submit Button */}
-          <div className="flex items-center gap-1.5 sm:col-span-2 lg:col-span-6 pt-1">
+          {/* Payment Details + Submit Button */}
+          <div className="flex items-center gap-1.5 sm:col-span-2 lg:col-span-7 pt-1">
             <div className="flex-1">
               <input
                 type="text"
-                placeholder="5. Payment Details (e.g. 30% advance on PO, 70% post delivery / 100% against invoice)"
+                placeholder="Payment Details (e.g. 30% advance on PO, 70% post delivery / 100% against invoice)"
                 value={inlinePaymentDetails}
                 onChange={(e) => setInlinePaymentDetails(e.target.value)}
                 className="w-full text-xs bg-slate-800/90 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
@@ -698,17 +791,34 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
 
       {/* Filter and Period Selection Toolbar */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
-        <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto flex-wrap">
           {/* Search Input */}
-          <div className="relative w-full sm:w-64">
+          <div className="relative w-full sm:w-60">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search item, PO no., payment..."
+              placeholder="Search dept, item, PO, payment..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full text-xs pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
             />
+          </div>
+
+          {/* Department Filter Dropdown */}
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <span className="text-slate-500 whitespace-nowrap">Department:</span>
+            <select
+              value={selectedDeptFilter}
+              onChange={(e) => setSelectedDeptFilter(e.target.value)}
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden cursor-pointer"
+            >
+              <option value="All">All Departments</option>
+              {uniqueDepartments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Daily Date Filter (when in Daily mode) */}
@@ -802,7 +912,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
         </div>
       )}
 
-      {/* MAIN DATA TABLE: Name of Item, PO No., PO Value, Date of Delivery, Payment Details */}
+      {/* MAIN DATA TABLE: With Dept. Name, Name of Item, PO No., PO Value, Date of Delivery, Payment Details */}
       <div className="bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden">
         <div className="overflow-x-auto max-h-[620px]">
           <table className="w-full text-left border-collapse text-xs">
@@ -823,20 +933,27 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                 <th className="py-2.5 px-3 min-w-[110px] font-bold border-r border-slate-700">
                   {cadence === 'daily' ? 'Report Date' : 'Month & Period'}
                 </th>
+                {/* User Requested: Option to mention Name of Department in Column */}
+                <th className="py-2.5 px-3.5 min-w-[160px] font-bold border-r border-slate-700 bg-slate-900/90 text-emerald-300">
+                  <div className="flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Dept. Name / Department</span>
+                  </div>
+                </th>
                 <th className="py-2.5 px-4 min-w-[220px] font-bold border-r border-slate-700">
-                  1. Name of Item
+                  Name of Item / Works
                 </th>
-                <th className="py-2.5 px-3 min-w-[140px] font-bold border-r border-slate-700">
-                  2. PO No.
+                <th className="py-2.5 px-3 min-w-[130px] font-bold border-r border-slate-700">
+                  PO No.
                 </th>
-                <th className="py-2.5 px-3 text-right min-w-[130px] font-bold border-r border-slate-700">
-                  3. PO Value (₹ Cr)
+                <th className="py-2.5 px-3 text-right min-w-[120px] font-bold border-r border-slate-700">
+                  PO Value (₹ Cr)
                 </th>
                 <th className="py-2.5 px-3 text-center min-w-[130px] font-bold border-r border-slate-700">
-                  4. Date of Delivery
+                  Date of Delivery
                 </th>
-                <th className="py-2.5 px-4 min-w-[260px] font-bold border-r border-slate-700">
-                  5. Payment Details
+                <th className="py-2.5 px-4 min-w-[240px] font-bold border-r border-slate-700">
+                  Payment Details
                 </th>
                 <th className="py-2.5 px-3 text-center w-24 font-bold">
                   Actions
@@ -847,13 +964,13 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             <tbody className="divide-y divide-slate-200">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
                     <p className="font-semibold text-slate-600">
                       No {cadence} CAPEX entries found for the selected filter.
                     </p>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Use the Quick Entry bar above or click "Add {cadence === 'daily' ? 'Daily' : 'Monthly'} Entry" to record items.
+                      Use the Quick Entry bar above or click "Add Entry" to record items with department name.
                     </p>
                   </td>
                 </tr>
@@ -881,6 +998,16 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                       {cadence === 'daily'
                         ? item.reportDate || '-'
                         : item.month || item.reportDate || '-'}
+                    </td>
+                    {/* Department Name Column Value */}
+                    <td className="py-2.5 px-3.5 font-medium text-slate-800 border-r border-slate-200">
+                      {item.deptName ? (
+                        <span className="inline-block bg-slate-100 text-slate-800 font-bold px-2 py-0.5 rounded text-[11px] uppercase border border-slate-200">
+                          {item.deptName}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic font-normal">(Not specified)</span>
+                      )}
                     </td>
                     <td className="py-2.5 px-4 font-semibold text-slate-900 border-r border-slate-200">
                       {item.itemName ? (
@@ -949,8 +1076,8 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
             {filteredItems.length > 0 && (
               <tfoot>
                 <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-slate-900 text-xs">
-                  <td colSpan={5} className="py-2.5 px-4 text-right uppercase tracking-wider font-extrabold border-r border-slate-300">
-                    Total ({filteredItems.length} Items):
+                  <td colSpan={6} className="py-2.5 px-4 text-right uppercase tracking-wider font-extrabold border-r border-slate-300">
+                    Total ({filteredItems.length} Items across {metrics.deptCount} Depts):
                   </td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-800 border-r border-slate-300">
                     {metrics.totalPoVal > 0 ? `₹ ${metrics.totalPoVal.toFixed(3)} Cr` : '-'}
@@ -971,7 +1098,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
         </div>
       </div>
 
-      {/* ADD / EDIT ENTRY MODAL (NOTHING MANDATORY) */}
+      {/* ADD / EDIT ENTRY MODAL (NOTHING MANDATORY, INCLUDES DEPARTMENT) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150">
@@ -982,7 +1109,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                   <span>{editingItem ? 'Edit CAPEX Record' : `New ${formCadence === 'daily' ? 'Daily' : 'Monthly'} CAPEX Entry`}</span>
                 </h3>
                 <span className="text-[11px] text-slate-300">
-                  All fields are completely optional — nothing is mandatory.
+                  All fields (Department, Item, PO, Delivery, Payment) are optional — nothing is mandatory.
                 </span>
               </div>
               <button
@@ -1043,10 +1170,46 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                 )}
               </div>
 
-              {/* 1. Name of Item */}
+              {/* Department Name and Project Name */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Name of Department (Optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    list="modal-dept-options"
+                    placeholder="e.g. MECHANICAL SERVICES"
+                    value={formDeptName}
+                    onChange={(e) => setFormDeptName(e.target.value)}
+                    className="w-full text-xs border border-slate-300 rounded-lg px-3 py-2 uppercase font-medium focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
+                  />
+                  <datalist id="modal-dept-options">
+                    {STANDARD_DEPTS.map((d) => (
+                      <option key={d} value={d} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Project / Unit Name (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. DONIMALAI"
+                    value={formProjectName}
+                    onChange={(e) => setFormProjectName(e.target.value)}
+                    className="w-full text-xs border border-slate-300 rounded-lg px-3 py-2 uppercase font-medium focus:ring-2 focus:ring-slate-900 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              {/* Name of Item */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  1. Name of Item (Optional)
+                  Name of Item / Works (Optional)
                 </label>
                 <input
                   type="text"
@@ -1057,11 +1220,11 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                 />
               </div>
 
-              {/* 2. PO No. and 3. PO Value */}
+              {/* PO No. and PO Value */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    2. PO No. (Optional)
+                    PO No. (Optional)
                   </label>
                   <input
                     type="text"
@@ -1073,7 +1236,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    3. PO Value (₹ Cr) (Optional)
+                    PO Value (₹ Cr) (Optional)
                   </label>
                   <input
                     type="text"
@@ -1085,10 +1248,10 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                 </div>
               </div>
 
-              {/* 4. Date of Delivery */}
+              {/* Date of Delivery */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  4. Date of Delivery (Optional)
+                  Date of Delivery (Optional)
                 </label>
                 <input
                   type="date"
@@ -1098,10 +1261,10 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
                 />
               </div>
 
-              {/* 5. Payment Details */}
+              {/* Payment Details */}
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  5. Payment Details (Optional)
+                  Payment Details (Optional)
                 </label>
                 <textarea
                   rows={2}
@@ -1115,7 +1278,7 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
               {/* Footer */}
               <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
                 <span className="text-[11px] text-slate-500">
-                  Nothing will be mandatory.
+                  Nothing is mandatory.
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -1157,6 +1320,10 @@ export const SimpleCapexReportingView: React.FC<SimpleCapexReportingViewProps> =
               </div>
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs space-y-1.5">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase block">Department</span>
+                  <span className="font-semibold text-slate-800">{itemToDelete.deptName || '(Not specified)'}</span>
+                </div>
                 <div>
                   <span className="text-[10px] text-slate-400 font-semibold uppercase block">Name of Item</span>
                   <span className="font-bold text-slate-900">{itemToDelete.itemName || '(Not specified)'}</span>

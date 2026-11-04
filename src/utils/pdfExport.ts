@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { CapexRow } from '../types/capexFormat';
+import { ReportFieldConfig } from '../types/reportingConfig';
 
 export interface PdfExportOptions {
   periodLabel: string;
@@ -8,6 +9,8 @@ export interface PdfExportOptions {
   fiscalYear: string;
   departmentFilter?: string;
   generatedBy?: string;
+  tabTitle?: string;
+  activeFields?: ReportFieldConfig[];
 }
 
 export function generateCapexPdfReport(
@@ -20,9 +23,11 @@ export function generateCapexPdfReport(
     fiscalYear,
     departmentFilter = 'All',
     generatedBy = 'M&S Central Dispatcher',
+    tabTitle = 'CAPEX MASTER REGISTER',
+    activeFields,
   } = options;
 
-  // Create PDF in landscape orientation for the 13 columns
+  // Create PDF in landscape orientation
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
@@ -32,30 +37,25 @@ export function generateCapexPdfReport(
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  // Color palette
-  const darkNavy = [15, 23, 42]; // #0f172a
-  const emeraldGreen = [16, 185, 129]; // #10b981
-  const slateBorder = [226, 232, 240];
-
   // 1. Header Banner
-  doc.setFillColor(15, 23, 42);
+  doc.setFillColor(15, 23, 42); // #0f172a
   doc.rect(0, 0, pageWidth, 28, 'F');
 
   // Decorative accent line
-  doc.setFillColor(16, 185, 129);
+  doc.setFillColor(16, 185, 129); // #10b981
   doc.rect(0, 27, pageWidth, 1.5, 'F');
 
   // Header Title
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.text('CAPEX REPORTING TAB • M&S 13-COLUMN OFFICIAL DOSSIER', 14, 11);
+  doc.setFontSize(13);
+  doc.text(`${tabTitle.toUpperCase()} • M&S OFFICIAL DOSSIER`, 14, 11);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(203, 213, 225);
   doc.text(
-    `Cadence: ${cadence.toUpperCase()} • Period: ${periodLabel} • Financial Year: ${fiscalYear} • Dept Filter: ${departmentFilter}`,
+    `Cadence: ${cadence.toUpperCase()} • Period: ${periodLabel} • Financial Year: ${fiscalYear} • Dept: ${departmentFilter}`,
     14,
     18
   );
@@ -63,7 +63,7 @@ export function generateCapexPdfReport(
   doc.setFontSize(8);
   doc.setTextColor(148, 163, 184);
   doc.text(
-    `Generated: ${new Date().toLocaleString()} | Currency: Rs. Crores | Confidential - For Internal Operations`,
+    `Generated: ${new Date().toLocaleString()} | Currency: Rs. Crores | Confidential - NMDC Operations`,
     14,
     24
   );
@@ -83,7 +83,7 @@ export function generateCapexPdfReport(
   const cardHeight = 15;
 
   const kpis = [
-    { label: 'Total Target Value', val: `Rs. ${totalTargetValue.toFixed(3)} Cr`, color: [30, 41, 59] },
+    { label: 'Total Target Budget', val: `Rs. ${totalTargetValue.toFixed(3)} Cr`, color: [30, 41, 59] },
     { label: 'Actual Exp. Incurred', val: `Rs. ${totalActualExp.toFixed(3)} Cr`, color: [16, 185, 129] },
     { label: 'Cumulative Exp.', val: `Rs. ${totalActualExp.toFixed(3)} Cr`, color: [5, 150, 105] },
     { label: 'Balance Fund Req.', val: `Rs. ${totalBalance.toFixed(3)} Cr`, color: [99, 102, 241] },
@@ -102,7 +102,7 @@ export function generateCapexPdfReport(
     doc.setTextColor(100, 116, 139);
     doc.text(kpi.label, x + 3, cardStartY + 5);
 
-    doc.setFontSize(8.5);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(kpi.color[0], kpi.color[1], kpi.color[2]);
     doc.text(kpi.val, x + 3, cardStartY + 11.5);
@@ -122,18 +122,20 @@ export function generateCapexPdfReport(
     });
   });
 
-  const projectRows = Array.from(projectMap.entries()).map(([name, d]) => [
-    name,
-    String(d.count),
-    `Rs. ${d.target.toFixed(3)} Cr`,
-    `Rs. ${d.exp.toFixed(3)} Cr`,
-    `Rs. ${d.exp.toFixed(3)} Cr`, // Cumulative
-    `Rs. ${d.bal.toFixed(3)} Cr`,
-    `Rs. ${d.del.toFixed(3)} Cr`,
-    d.target > 0 ? `${((d.exp / d.target) * 100).toFixed(1)}%` : '0.0%',
-  ]);
+  const projectRows = Array.from(projectMap.entries()).map(([name, data]) => {
+    const pct = data.target > 0 ? ((data.exp / data.target) * 100).toFixed(1) : '0.0';
+    return [
+      name,
+      String(data.count),
+      `Rs. ${data.target.toFixed(3)} Cr`,
+      `Rs. ${data.exp.toFixed(3)} Cr`,
+      `Rs. ${data.exp.toFixed(3)} Cr`,
+      `Rs. ${data.bal.toFixed(3)} Cr`,
+      `Rs. ${data.del.toFixed(3)} Cr`,
+      `${pct}%`,
+    ];
+  });
 
-  // Project Aggregations Table
   autoTable(doc, {
     startY: cardStartY + cardHeight + 4,
     margin: { left: 14, right: 14 },
@@ -191,54 +193,42 @@ export function generateCapexPdfReport(
 
   const nextTableY = (doc as any).lastAutoTable.finalY + 6;
 
-  // 4. Full 13-Column Detailed Item Register Table
-  const tableData = rows.map((r, i) => [
-    String(r.slNo || i + 1),
-    r.projectName || '-',
-    r.deptName || '-',
-    r.itemName || '-',
-    r.wbsElement || '-',
-    r.itemValue !== undefined && r.itemValue !== '' ? Number(r.itemValue).toFixed(3) : '-',
-    r.expenditureIncurred !== undefined && r.expenditureIncurred !== '' ? Number(r.expenditureIncurred).toFixed(3) : '-',
-    r.balanceFundRequired !== undefined && r.balanceFundRequired !== '' ? Number(r.balanceFundRequired).toFixed(3) : '-',
-    r.deliveryCapexValue !== undefined && r.deliveryCapexValue !== '' ? `${Number(r.deliveryCapexValue).toFixed(3)}\n(${r.deliveryMonthYear || '-'})` : '-',
-    r.commissionCapexValue !== undefined && r.commissionCapexValue !== '' ? `${Number(r.commissionCapexValue).toFixed(3)}\n(${r.commissionMonth || '-'})` : '-',
-    r.remarks || '-',
-  ]);
+  // 4. Detailed Table with Dynamic Configured Columns or Standard 13 Columns
+  const fields = activeFields && activeFields.length > 0 ? activeFields : null;
 
-  autoTable(doc, {
-    startY: nextTableY,
-    margin: { left: 14, right: 14, bottom: 20 },
-    theme: 'grid',
-    headStyles: {
-      fillColor: [15, 23, 42],
-      textColor: [255, 255, 255],
-      fontSize: 7,
-      fontStyle: 'bold',
-      halign: 'center',
-    },
-    bodyStyles: {
-      fontSize: 6.5,
-      textColor: [15, 23, 42],
-      cellPadding: 1.5,
-    },
-    alternateRowStyles: {
-      fillColor: [248, 250, 252],
-    },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 10 },
-      1: { halign: 'left', cellWidth: 26, fontStyle: 'bold' },
-      2: { halign: 'left', cellWidth: 28 },
-      3: { halign: 'left', cellWidth: 50 },
-      4: { halign: 'center', cellWidth: 24, fontStyle: 'bold' },
-      5: { halign: 'right', cellWidth: 20, fontStyle: 'bold' },
-      6: { halign: 'right', cellWidth: 22, textColor: [5, 150, 105] },
-      7: { halign: 'right', cellWidth: 22, textColor: [79, 70, 229] },
-      8: { halign: 'right', cellWidth: 22 },
-      9: { halign: 'right', cellWidth: 22 },
-      10: { halign: 'left', cellWidth: 23 },
-    },
-    head: [[
+  let headCols: string[][];
+  let bodyData: string[][];
+  let footCols: string[][];
+
+  if (fields) {
+    headCols = [['Sl', ...fields.map((f) => f.label + (f.unit ? ` (${f.unit})` : ''))]];
+    bodyData = rows.map((r, i) => [
+      String(r.slNo || i + 1),
+      ...fields.map((f) => {
+        const val = r[f.key];
+        if (val === undefined || val === null || val === '') return '-';
+        if (f.type === 'currency' || f.type === 'number') {
+          const n = Number(val);
+          return isNaN(n) ? String(val) : n.toFixed(3);
+        }
+        return String(val);
+      }),
+    ]);
+
+    const footRow: string[] = ['TOTAL'];
+    fields.forEach((f, idx) => {
+      if (idx === 0) {
+        footRow.push(`${rows.length} Items`);
+      } else if (f.type === 'currency' || f.type === 'number') {
+        const sum = rows.reduce((s, r) => s + (Number(r[f.key]) || 0), 0);
+        footRow.push(sum > 0 ? sum.toFixed(3) : '-');
+      } else {
+        footRow.push('');
+      }
+    });
+    footCols = [footRow];
+  } else {
+    headCols = [[
       'Sl',
       'Project',
       'Department',
@@ -250,9 +240,23 @@ export function generateCapexPdfReport(
       'Delivery Capex',
       'Comm. Capex',
       'Remarks',
-    ]],
-    body: tableData,
-    foot: [[
+    ]];
+
+    bodyData = rows.map((r, i) => [
+      String(r.slNo || i + 1),
+      r.projectName || '-',
+      r.deptName || '-',
+      r.itemName || '-',
+      r.wbsElement || '-',
+      r.itemValue !== undefined && r.itemValue !== '' ? Number(r.itemValue).toFixed(3) : '-',
+      r.expenditureIncurred !== undefined && r.expenditureIncurred !== '' ? Number(r.expenditureIncurred).toFixed(3) : '-',
+      r.balanceFundRequired !== undefined && r.balanceFundRequired !== '' ? Number(r.balanceFundRequired).toFixed(3) : '-',
+      r.deliveryCapexValue !== undefined && r.deliveryCapexValue !== '' ? `${Number(r.deliveryCapexValue).toFixed(3)} (${r.deliveryMonthYear || '-'})` : '-',
+      r.commissionCapexValue !== undefined && r.commissionCapexValue !== '' ? `${Number(r.commissionCapexValue).toFixed(3)} (${r.commissionMonth || '-'})` : '-',
+      r.remarks || '-',
+    ]);
+
+    footCols = [[
       'TOTAL',
       '',
       '',
@@ -264,15 +268,38 @@ export function generateCapexPdfReport(
       totalDeliveryCapex.toFixed(3),
       totalCommissionCapex.toFixed(3),
       `Achieved: ${achievementPct}%`,
-    ]],
+    ]];
+  }
+
+  autoTable(doc, {
+    startY: nextTableY,
+    margin: { left: 14, right: 14, bottom: 20 },
+    theme: 'grid',
+    headStyles: {
+      fillColor: [15, 23, 42],
+      textColor: [255, 255, 255],
+      fontSize: 6.5,
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    bodyStyles: {
+      fontSize: 6,
+      textColor: [15, 23, 42],
+      cellPadding: 1.5,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    head: headCols,
+    body: bodyData,
+    foot: footCols,
     footStyles: {
       fillColor: [226, 232, 240],
       textColor: [15, 23, 42],
-      fontSize: 7,
+      fontSize: 6.5,
       fontStyle: 'bold',
     },
     didDrawPage: (data) => {
-      // Add page numbering & official footer
       const str = `Page ${doc.getNumberOfPages()} • Official CAPEX Register • M&S Dept`;
       doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
@@ -283,7 +310,7 @@ export function generateCapexPdfReport(
 
   const cleanLabel = periodLabel.replace(/[^a-zA-Z0-9]/g, '_');
   const dateStr = new Date().toISOString().slice(0, 10);
-  const fileName = `CAPEX_Report_${options.cadence}_${cleanLabel}_${dateStr}.pdf`;
+  const fileName = `CAPEX_Master_Register_${options.cadence}_${cleanLabel}_${dateStr}.pdf`;
 
   doc.save(fileName);
   return fileName;

@@ -17,6 +17,7 @@ import {
   Lock,
   Calendar,
   CalendarDays,
+  Sliders,
 } from 'lucide-react';
 
 export type NavTab =
@@ -37,6 +38,7 @@ interface NavbarProps {
   onOpenWhatsAppModal: () => void;
   onOpenExcelModal: () => void;
   onOpenGoogleCloudModal?: () => void;
+  onOpenReportingConfig?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -46,6 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenExpenseModal,
   onOpenWhatsAppModal,
   onOpenExcelModal,
+  onOpenReportingConfig,
 }) => {
   const {
     fiscalYear,
@@ -129,66 +132,80 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Tab Navigation Row: 3 Distinct Reporting Tabs */}
-        <div className="flex items-center gap-2 border-t border-slate-800 overflow-x-auto py-2 scrollbar-none text-xs">
-          {/* Tab 1: Comprehensive M&S 13-Col Register */}
-          <button
-            onClick={() => setActiveTab('register')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === 'register'
-                ? 'bg-emerald-600 text-white shadow-sm border border-emerald-500/50'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
-          >
-            <TableProperties className="w-4 h-4 text-emerald-300" />
-            <span className="text-sm">CAPEX Reporting Tab</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
-                activeTab === 'register' ? 'bg-emerald-800/80 text-emerald-200' : 'bg-slate-800 text-slate-400'
+        <div className="flex items-center justify-between border-t border-slate-800 overflow-x-auto py-2 scrollbar-none text-xs gap-3">
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Tab 1: Renamed to CAPEX Master Register */}
+            <button
+              onClick={() => setActiveTab('register')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+                activeTab === 'register'
+                  ? 'bg-emerald-600 text-white shadow-sm border border-emerald-500/50'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
               }`}
             >
-              M&amp;S 13-Col Register
-            </span>
-          </button>
+              <TableProperties className="w-4 h-4 text-emerald-300" />
+              <span className="text-sm">CAPEX Master Register</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                  activeTab === 'register' ? 'bg-emerald-800/80 text-emerald-200' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                Master 13-Col Register
+              </span>
+            </button>
 
-          {/* Tab 2: Separate Daily CAPEX Reporting */}
-          <button
-            onClick={() => setActiveTab('daily_reporting')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === 'daily_reporting'
-                ? 'bg-indigo-600 text-white shadow-sm border border-indigo-500/50'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
-          >
-            <Calendar className="w-4 h-4 text-indigo-300" />
-            <span className="text-sm">Daily CAPEX Reporting</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
-                activeTab === 'daily_reporting' ? 'bg-indigo-800/80 text-indigo-200' : 'bg-slate-800 text-slate-400'
+            {/* Tab 2: Separate Daily CAPEX Reporting */}
+            <button
+              onClick={() => setActiveTab('daily_reporting')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+                activeTab === 'daily_reporting'
+                  ? 'bg-indigo-600 text-white shadow-sm border border-indigo-500/50'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
               }`}
             >
-              Daily Entries
-            </span>
-          </button>
+              <Calendar className="w-4 h-4 text-indigo-300" />
+              <span className="text-sm">Daily CAPEX Reporting</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                  activeTab === 'daily_reporting' ? 'bg-indigo-800/80 text-indigo-200' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                13-Col Format
+              </span>
+            </button>
 
-          {/* Tab 3: Separate Monthly CAPEX Reporting */}
-          <button
-            onClick={() => setActiveTab('monthly_reporting')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === 'monthly_reporting'
-                ? 'bg-emerald-700 text-white shadow-sm border border-emerald-500/50'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
-          >
-            <CalendarDays className="w-4 h-4 text-emerald-300" />
-            <span className="text-sm">Monthly CAPEX Reporting</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
-                activeTab === 'monthly_reporting' ? 'bg-emerald-900/80 text-emerald-200' : 'bg-slate-800 text-slate-400'
+            {/* Tab 3: Separate Monthly CAPEX Reporting */}
+            <button
+              onClick={() => setActiveTab('monthly_reporting')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+                activeTab === 'monthly_reporting'
+                  ? 'bg-emerald-700 text-white shadow-sm border border-emerald-500/50'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent'
               }`}
             >
-              Monthly Entries
-            </span>
-          </button>
+              <CalendarDays className="w-4 h-4 text-emerald-300" />
+              <span className="text-sm">Monthly CAPEX Reporting</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                  activeTab === 'monthly_reporting' ? 'bg-emerald-900/80 text-emerald-200' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                13-Col Format
+              </span>
+            </button>
+          </div>
+
+          {/* Administrator Reporting Field Config Modal Trigger Button */}
+          {onOpenReportingConfig && (
+            <button
+              onClick={onOpenReportingConfig}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40 font-bold transition-all shrink-0 cursor-pointer shadow-xs hover:border-indigo-400"
+              title="Add, transfer, and drag-and-drop reporting fields between Master Register, Daily, and Monthly tabs"
+            >
+              <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Reporting Field Config</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

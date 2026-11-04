@@ -1,6 +1,6 @@
 /**
  * Excel and PDF Export Utility for Simple Daily & Monthly CAPEX Reporting
- * Columns: Name of Item, PO No., PO Value, Date of Delivery, Payment Details
+ * Columns: Sl. No, Report Date / Month, Department Name, Name of Item, PO No., PO Value, Date of Delivery, Payment Details
  */
 
 import * as XLSX from 'xlsx';
@@ -25,9 +25,10 @@ export function exportSimpleCapexExcel(
   const tableHeaders = [
     'Sl. No',
     'Report Date / Month',
-    'Type',
-    'Name of Item',
-    'PO No.',
+    'Dept. Name / Department',
+    'Project / Unit',
+    'Name of Item / Works',
+    'PO No. / WBS',
     'PO Value (₹ Cr)',
     'Date of Delivery',
     'Payment Details',
@@ -36,7 +37,8 @@ export function exportSimpleCapexExcel(
   const rows = items.map((item, idx) => [
     item.slNo || idx + 1,
     item.reportDate || item.month || '-',
-    item.cadence.toUpperCase(),
+    item.deptName || '-',
+    item.projectName || '-',
     item.itemName || '-',
     item.poNumber || '-',
     item.poValue !== undefined && item.poValue !== '' ? item.poValue : '-',
@@ -54,6 +56,7 @@ export function exportSimpleCapexExcel(
     'TOTAL',
     '',
     '',
+    '',
     `${items.length} Items`,
     '',
     totalPoValue > 0 ? Number(totalPoValue.toFixed(3)) : '-',
@@ -67,7 +70,8 @@ export function exportSimpleCapexExcel(
   ws['!cols'] = [
     { wch: 8 },  // Sl No
     { wch: 18 }, // Date
-    { wch: 10 }, // Type
+    { wch: 22 }, // Dept Name
+    { wch: 18 }, // Project
     { wch: 32 }, // Item
     { wch: 18 }, // PO No
     { wch: 16 }, // PO Value
@@ -88,7 +92,8 @@ export function exportSimpleCapexCSV(
   const headers = [
     'Sl. No',
     'Report Date',
-    'Type',
+    'Dept. Name',
+    'Project Name',
     'Name of Item',
     'PO No.',
     'PO Value',
@@ -104,7 +109,8 @@ export function exportSimpleCapexCSV(
   const csvRows = items.map((item, idx) => [
     item.slNo || idx + 1,
     escapeCSV(item.reportDate || item.month || ''),
-    escapeCSV(item.cadence.toUpperCase()),
+    escapeCSV(item.deptName || ''),
+    escapeCSV(item.projectName || ''),
     escapeCSV(item.itemName || ''),
     escapeCSV(item.poNumber || ''),
     escapeCSV(item.poValue || ''),
@@ -150,7 +156,7 @@ export function exportSimpleCapexPDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(167, 243, 208); // emerald-200
-  doc.text(`${periodLabel} • Item, PO, Delivery & Payment Dossier`, 30, 42);
+  doc.text(`${periodLabel} • Department, Item, PO, Delivery & Payment Dossier`, 30, 42);
 
   // Metadata Strip
   doc.setTextColor(226, 232, 240);
@@ -174,14 +180,15 @@ export function exportSimpleCapexPDF(
   doc.text(`Total Records: ${items.length}`, 45, 82);
   doc.text(`Total PO Value: Rs. ${totalPoValue.toFixed(3)} Cr`, 220, 82);
   doc.text(`Reporting Cadence: ${mode.toUpperCase()}`, 460, 82);
-  doc.text(`Entry Format: Non-Mandatory Simplified Register`, 640, 82);
+  doc.text(`Format: Official M&S Department Register`, 640, 82);
 
   // Table Data
   const head = [[
     'Sl.',
-    'Cadence & Date',
-    'Name of Item',
-    'PO No.',
+    'Period / Date',
+    'Dept. Name',
+    'Name of Item / Works',
+    'PO No. / WBS',
     'PO Value (₹ Cr)',
     'Date of Delivery',
     'Payment Details',
@@ -190,6 +197,7 @@ export function exportSimpleCapexPDF(
   const body = items.map((item, idx) => [
     item.slNo || idx + 1,
     item.reportDate || item.month || '-',
+    item.deptName || '-',
     item.itemName || '-',
     item.poNumber || '-',
     item.poValue !== undefined && item.poValue !== '' ? `Rs. ${item.poValue}` : '-',
@@ -215,13 +223,14 @@ export function exportSimpleCapexPDF(
       textColor: [30, 41, 59],
     },
     columnStyles: {
-      0: { cellWidth: 28, halign: 'center' },
-      1: { cellWidth: 85 },
-      2: { cellWidth: 160, fontStyle: 'bold' },
-      3: { cellWidth: 95 },
-      4: { cellWidth: 80, halign: 'right' },
-      5: { cellWidth: 85 },
-      6: { cellWidth: 'auto' },
+      0: { cellWidth: 26, halign: 'center' },
+      1: { cellWidth: 70 },
+      2: { cellWidth: 95 },
+      3: { cellWidth: 150, fontStyle: 'bold' },
+      4: { cellWidth: 85 },
+      5: { cellWidth: 75, halign: 'right' },
+      6: { cellWidth: 75 },
+      7: { cellWidth: 'auto' },
     },
     didDrawPage: (data) => {
       // Footer page numbering

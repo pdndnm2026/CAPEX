@@ -205,7 +205,7 @@ export const ReportGenerationModal: React.FC<ReportGenerationModalProps> = ({
         return;
       }
 
-      const { blob, fileName } = generateExactCapexBlob(filteredRows, periodLabel);
+      const { blob, fileName } = await generateExactCapexBlob(filteredRows, periodLabel);
       await saveReportToGoogleDrive(
         token,
         fileName,

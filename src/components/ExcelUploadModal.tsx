@@ -263,8 +263,8 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
             // Duplicate by Project + Item name
             const existsInDb = existingRows.some(
               (er) =>
-                er.projectName.trim().toLowerCase() === projectName.toLowerCase() &&
-                er.itemName.trim().toLowerCase() === itemName.toLowerCase()
+                (er.projectName || '').trim().toLowerCase() === projectName.toLowerCase() &&
+                (er.itemName || '').trim().toLowerCase() === itemName.toLowerCase()
             );
             if (existsInDb) isDuplicate = true;
           }

@@ -240,6 +240,8 @@ export async function saveSimpleCapexReportToDb(item: SimpleCapexItem): Promise<
       reportDate: item.reportDate || new Date().toISOString().slice(0, 10),
       month: item.month || '',
       fiscalYear: item.fiscalYear || '',
+      deptName: item.deptName ? String(item.deptName).trim() : '',
+      projectName: item.projectName ? String(item.projectName).trim() : '',
       itemName: item.itemName ? String(item.itemName).trim() : '',
       poNumber: item.poNumber ? String(item.poNumber).trim() : '',
       poValue: item.poValue !== undefined && item.poValue !== null ? String(item.poValue).trim() : '',

@@ -1,6 +1,6 @@
 /**
  * Simple CAPEX Reporting Types (Daily & Monthly)
- * Fields: Name of Item, PO No., PO Value, Date of Delivery, Payment Details
+ * Fields: Name of Department, Name of Item, PO No., PO Value, Date of Delivery, Payment Details
  * Strictly non-mandatory / optional
  */
 
@@ -15,9 +15,11 @@ export interface SimpleCapexItem {
   fiscalYear?: string; // e.g. "FY 2026-27"
 
   // User-specified fields (ALL OPTIONAL / NON-MANDATORY):
-  itemName: string;        // Name of Item
-  poNumber: string;        // PO No.
-  poValue: string | number; // PO Value
+  deptName?: string;       // Name of Department (e.g. MECHANICAL SERVICES, ELECTRICAL, MINING)
+  projectName?: string;    // Name of Project / Unit (e.g. DONIMALAI, KIRANDUL)
+  itemName: string;        // Name of Item / Works
+  poNumber: string;        // PO No. / WBS Element
+  poValue: string | number; // PO Value / Item Value (₹ Cr)
   deliveryDate: string;    // Date of Delivery
   paymentDetails: string;  // Payment Details
 
